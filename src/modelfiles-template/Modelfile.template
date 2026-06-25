@@ -1,0 +1,23 @@
+# Modelfile template — copy this into your project's modelfiles/ folder
+# and customise for your use case.
+#
+# Build:  ollama create <your-model-name> -f modelfiles/Modelfile.<name>
+# Use:    OLLAMA_MODEL=<your-model-name> in .env.development
+#
+# This bakes your system prompt into a named local model variant.
+# It mirrors what Anthropic prompt caching does in production:
+# the stable context is paid once, not on every request.
+
+FROM qwen2.5-coder:14b
+
+SYSTEM """
+<your system prompt here>
+
+Rules:
+- Respond only in JSON
+- No explanation, no markdown fences
+"""
+
+PARAMETER temperature 0.1
+PARAMETER num_predict 1024
+PARAMETER top_p 0.9
