@@ -40,7 +40,7 @@ async function buildOllamaModel(config: ProviderConfig): Promise<LanguageModel> 
   try {
     const { createOllama } = await import('ollama-ai-provider')
     const ollama = createOllama({ baseURL: `${config.baseURL}/api` })
-    return ollama(config.model) as LanguageModel
+    return ollama(config.model) as unknown as LanguageModel
   } catch (err) {
     // Only gets here if ollama-ai-provider isn't installed
     if (isModuleNotFound(err)) {
