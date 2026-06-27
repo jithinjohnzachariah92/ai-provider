@@ -1,4 +1,4 @@
-export type AIProviderName = 'ollama' | 'anthropic'
+export type AIProviderName = 'ollama' | 'anthropic' | 'openai' | 'google' | 'groq' | 'mistral'
 
 export type AIEnvironment = 'development' | 'test' | 'production'
 
@@ -14,7 +14,7 @@ export type ProviderConfig = {
 export type AIRequestOptions<T = string> = {
   /** The user-facing prompt — the dynamic part of every request */
   prompt: string
-  /** Stable system instructions — cached in production, baked into Modelfile locally */
+  /** Stable system instructions — cached in production (Anthropic), baked into Modelfile locally */
   systemPrompt: string
   /** Zod schema for structured output. Required for generateStructured(). */
   schema?: import('zod').ZodSchema<T>

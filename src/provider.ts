@@ -1,31 +1,44 @@
 /// <reference types="node" />
-import type { ProviderConfig, AIEnvironment } from './types.js'
+import type { ProviderConfig, AIProviderName, AIEnvironment } from './types.js'
 
 /**
  * Resolves which AI provider + model to use based on NODE_ENV.
  *
- * development  → Ollama (local, free, no API key)
- * test         → Anthropic Haiku (cheap, real API, for CI)
- * production   → Anthropic Sonnet with prompt caching
+ * Default routing:
+ *   development  → Ollama (local, free, no API key)
+ *   test         → Anthropic Haiku (cheap, real API, for CI)
+ *   production   → Anthropic Sonnet with prompt caching
  *
- * Env var overrides (all optional):
- *   AI_PROVIDER=ollama|anthropic   force a provider regardless of NODE_ENV
- *   AI_MODEL=<model-string>        force a specific model
- *   OLLAMA_MODEL=<name>            local model name (e.g. a named Modelfile variant)
- *   OLLAMA_BASE_URL=<url>          default: http://localhost:11434
+ * Override anything via env vars:
+ *   AI_PROVIDER=openai|anthropic|google|groq|mistral|ollama
+ *   AI_MODEL=<model string>
+ *   OLLAMA_MODEL=<named variant>
+ *   OLLAMA_BASE_URL=<url>
+ *
+ * Provider-specific defaults when AI_PROVIDER is set:
+ *   openai    → gpt-4o-mini (test) / gpt-4o (prod)
+ *   google    → gemini-1.5-flash (test) / gemini-1.5-pro (prod)
+ *   groq      → llama-3.1-8b-instant (test) / llama-3.1-70b-versatile (prod)
+ *   mistral   → mistral-small-latest (test) / mistral-large-latest (prod)
  */
 export function resolveProvider(): ProviderConfig {
   const env = resolveEnvironment()
-  const providerOverride = process.env.AI_PROVIDER as 'ollama' | 'anthropic' | undefined
+  const providerOverride = process.env.AI_PROVIDER as AIProviderName | undefined
   const modelOverride = process.env.AI_MODEL
 
-  if (providerOverride === 'anthropic') return buildAnthropicConfig(env, modelOverride)
-  if (providerOverride === 'ollama') return buildOllamaConfig(modelOverride)
+  // Explicit provider override
+  if (providerOverride && providerOverride !== 'ollama') {
+    return buildCloudConfig(providerOverride, env, modelOverride)
+  }
+  if (providerOverride === 'ollama') {
+    return buildOllamaConfig(modelOverride)
+  }
 
+  // Environment defaults
   switch (env) {
     case 'development': return buildOllamaConfig(modelOverride)
-    case 'test':        return buildAnthropicConfig('test', modelOverride)
-    case 'production':  return buildAnthropicConfig('production', modelOverride)
+    case 'test':        return buildCloudConfig('anthropic', 'test', modelOverride)
+    case 'production':  return buildCloudConfig('anthropic', 'production', modelOverride)
   }
 }
 
@@ -47,30 +60,42 @@ function buildOllamaConfig(modelOverride?: string): ProviderConfig {
   }
 }
 
-function buildAnthropicConfig(env: AIEnvironment, modelOverride?: string): ProviderConfig {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error(
-      '[ai-provider] ANTHROPIC_API_KEY is not set.\n' +
-      'Add it to .env.local for cloud testing, or to your deployment secrets.\n' +
-      'For local dev without a key, ensure NODE_ENV=development (uses Ollama).'
-    )
-  }
+function buildCloudConfig(
+  provider: Exclude<AIProviderName, 'ollama'>,
+  env: AIEnvironment,
+  modelOverride?: string
+): ProviderConfig {
+  const isTest = env === 'test'
 
-  if (env === 'test') {
-    return {
-      provider: 'anthropic',
-      model: modelOverride ?? 'claude-haiku-4-5-20251001',
-      maxTokens: 512,
-      usePromptCache: false,
-      env: 'test',
-    }
+  const defaults: Record<Exclude<AIProviderName, 'ollama'>, { test: string; production: string }> = {
+    anthropic: {
+      test:       'claude-haiku-4-5-20251001',
+      production: 'claude-sonnet-4-6',
+    },
+    openai: {
+      test:       'gpt-4o-mini',
+      production: 'gpt-4o',
+    },
+    google: {
+      test:       'gemini-1.5-flash',
+      production: 'gemini-1.5-pro',
+    },
+    groq: {
+      test:       'llama-3.1-8b-instant',
+      production: 'llama-3.1-70b-versatile',
+    },
+    mistral: {
+      test:       'mistral-small-latest',
+      production: 'mistral-large-latest',
+    },
   }
 
   return {
-    provider: 'anthropic',
-    model: modelOverride ?? 'claude-sonnet-4-6',
-    maxTokens: 1024,
-    usePromptCache: true,
-    env: 'production',
+    provider,
+    model: modelOverride ?? defaults[provider][isTest ? 'test' : 'production'],
+    maxTokens: isTest ? 512 : 1024,
+    // Only Anthropic supports prompt caching via this SDK
+    usePromptCache: provider === 'anthropic' && !isTest,
+    env,
   }
 }

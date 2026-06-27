@@ -13,4 +13,13 @@
 
 export { generateStructured, generatePlainText } from './gateway.js'
 export { resolveProvider } from './provider.js'
-export type { AIResponse, AIRequestOptions, ProviderConfig, AIProviderName, AIEnvironment } from './types.js'
+export { responseCache } from './cache.js'
+export { AIProviderError } from './errors.js'
+export type { AIErrorCode } from './errors.js'
+export type {
+  AIResponse,
+  AIRequestOptions,
+  ProviderConfig,
+  AIProviderName,
+  AIEnvironment,
+} from './types.js'

@@ -1,12 +1,13 @@
 {
   "name": "@jithin/ai-provider",
-  "version": "0.1.0",
-  "description": "Environment-aware AI provider for portfolio projects. Local dev → Ollama, deployed → Anthropic.",
+  "version": "0.2.0",
+  "description": "Environment-aware AI provider for portfolio projects. Local dev → Ollama, deployed → any cloud provider.",
   "author": "Jithin Zachariah",
   "license": "MIT",
   "private": false,
-  "main": "./dist/index.js",
   "type": "module",
+
+  "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -22,44 +23,45 @@
     "scripts",
     "README.md"
   ],
+
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "type-check": "tsc --noEmit",
-    "test": "NODE_ENV=development npx tsx test/smoke.ts",
+    "test": "NODE_ENV=development npx tsx --tsconfig tsconfig.json test/smoke.ts",
     "setup:local": "bash scripts/setup-local.sh",
     "prepublishOnly": "npm run build && npm run type-check"
   },
+
   "peerDependencies": {
     "ai": ">=4.0.0",
+    "zod": ">=3.0.0",
     "@ai-sdk/anthropic": ">=1.0.0",
-    "ollama-ai-provider": ">=0.16.0",
-    "zod": ">=3.0.0"
+    "@ai-sdk/openai": ">=1.0.0",
+    "@ai-sdk/google": ">=1.0.0",
+    "@ai-sdk/groq": ">=1.0.0",
+    "@ai-sdk/mistral": ">=1.0.0",
+    "ollama-ai-provider": ">=0.16.0"
   },
   "peerDependenciesMeta": {
-    "ollama-ai-provider": {
-      "optional": true
-    }
+    "@ai-sdk/anthropic":  { "optional": true },
+    "@ai-sdk/openai":     { "optional": true },
+    "@ai-sdk/google":     { "optional": true },
+    "@ai-sdk/groq":       { "optional": true },
+    "@ai-sdk/mistral":    { "optional": true },
+    "ollama-ai-provider": { "optional": true }
   },
   "devDependencies": {
     "typescript": "^5.4.0",
     "tsup": "^8.0.0",
     "tsx": "^4.0.0",
     "@types/node": "^20.0.0",
-    "@ai-sdk/anthropic": "^1.0.0",
-    "ollama-ai-provider": "^0.16.0",
     "ai": "^4.0.0",
-    "zod": "^3.23.0"
+    "zod": "^3.23.0",
+    "@ai-sdk/anthropic": "^1.0.0",
+    "ollama-ai-provider": "^0.16.0"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": [
-    "ai",
-    "ollama",
-    "anthropic",
-    "vercel-ai-sdk",
-    "llm",
-    "provider"
-  ]
+
+  "engines": { "node": ">=18.0.0" },
+  "keywords": ["ai", "ollama", "anthropic", "openai", "google", "groq", "mistral", "vercel-ai-sdk", "llm", "provider"]
 }

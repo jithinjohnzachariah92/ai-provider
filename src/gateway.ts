@@ -4,18 +4,24 @@ import type { CoreMessage } from 'ai'
 import type { ZodSchema } from 'zod'
 import { resolveProvider } from './provider.js'
 import { buildModel } from './client.js'
+import { responseCache } from './cache.js'
+import { wrapError, isRetryable, AIProviderError } from './errors.js'
 import type { AIRequestOptions, AIResponse, ProviderConfig } from './types.js'
 
-// Simple in-memory cache — zero deps, good enough for portfolio projects.
-// Swap for Redis/Upstash when you need persistence across restarts.
-const responseCache = new Map<string, unknown>()
+// Default request timeout — 30s for cloud, 60s for local Ollama (model load time)
+const TIMEOUT_MS = {
+  ollama:    parseInt(process.env.AI_TIMEOUT_MS ?? '60000', 10),
+  anthropic: parseInt(process.env.AI_TIMEOUT_MS ?? '30000', 10),
+  openai:    parseInt(process.env.AI_TIMEOUT_MS ?? '30000', 10),
+  google:    parseInt(process.env.AI_TIMEOUT_MS ?? '30000', 10),
+  groq:      parseInt(process.env.AI_TIMEOUT_MS ?? '30000', 10),
+  mistral:   parseInt(process.env.AI_TIMEOUT_MS ?? '30000', 10),
+}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * generateStructured
- * Use when you need typed, validated JSON output.
- * Requires a Zod schema. Throws on schema validation failure (retried up to 2x).
+ * generateStructured — typed, validated JSON output.
  *
  * @example
  * const result = await generateStructured({
@@ -24,47 +30,59 @@ const responseCache = new Map<string, unknown>()
  *   schema: z.object({ name: z.string() }),
  *   cacheKey: `parse:${userInput}`,
  * })
- * console.log(result.data.name)
  */
 export async function generateStructured<T>(
   options: AIRequestOptions<T> & { schema: ZodSchema<T> }
 ): Promise<AIResponse<T>> {
   const config = resolveProvider()
 
-  const cached = checkCache<T>(options.cacheKey)
-  if (cached) return cached
+  const cached = responseCache.get<T>(options.cacheKey ?? '')
+  if (cached && options.cacheKey) {
+    return { data: cached, provider: config.provider, model: config.model, fromCache: true }
+  }
 
   guardTokenBudget(options.systemPrompt + options.prompt, options.maxInputTokens ?? 8000)
 
-  const model = await buildModel(config)
+  const model    = await buildModel(config)
   const messages = buildMessages(config, options.systemPrompt, options.prompt)
+  const timeout  = TIMEOUT_MS[config.provider]
 
-  const result = await withRetry(() =>
-    generateObject({ model, messages, schema: options.schema, maxTokens: config.maxTokens })
+  const result = await withRetry(
+    () => withTimeout(
+      () => generateObject({ model, messages, schema: options.schema, maxTokens: config.maxTokens }),
+      timeout
+    ),
+    config.provider
   )
 
   return buildResponse(result.object, result.usage, config, options.cacheKey)
 }
 
 /**
- * generatePlainText
- * Use for non-structured outputs — summaries, rewrites, chat responses.
+ * generatePlainText — unstructured text output.
  */
 export async function generatePlainText(
   options: Omit<AIRequestOptions, 'schema'>
 ): Promise<AIResponse<string>> {
   const config = resolveProvider()
 
-  const cached = checkCache<string>(options.cacheKey)
-  if (cached) return cached
+  const cached = responseCache.get<string>(options.cacheKey ?? '')
+  if (cached && options.cacheKey) {
+    return { data: cached, provider: config.provider, model: config.model, fromCache: true }
+  }
 
   guardTokenBudget(options.systemPrompt + options.prompt, options.maxInputTokens ?? 8000)
 
-  const model = await buildModel(config)
+  const model    = await buildModel(config)
   const messages = buildMessages(config, options.systemPrompt, options.prompt)
+  const timeout  = TIMEOUT_MS[config.provider]
 
-  const result = await withRetry(() =>
-    generateText({ model, messages, maxTokens: config.maxTokens })
+  const result = await withRetry(
+    () => withTimeout(
+      () => generateText({ model, messages, maxTokens: config.maxTokens }),
+      timeout
+    ),
+    config.provider
   )
 
   return buildResponse(result.text, result.usage, config, options.cacheKey)
@@ -72,23 +90,6 @@ export async function generatePlainText(
 
 // ─── Internals ────────────────────────────────────────────────────────────────
 
-function checkCache<T>(cacheKey?: string): AIResponse<T> | null {
-  if (!cacheKey) return null
-  const hit = responseCache.get(cacheKey)
-  if (!hit) return null
-  return { data: hit as T, provider: 'anthropic', model: 'cached', fromCache: true }
-}
-
-/**
- * Builds the messages array for the AI SDK.
- *
- * CoreSystemMessage.content must be a plain string — no arrays allowed.
- * Prompt caching metadata therefore goes on the user message content block,
- * which does accept an array of parts with experimental_providerMetadata.
- *
- * When usePromptCache is false (local Ollama, CI), we use plain strings
- * throughout — simpler and compatible with all providers.
- */
 function buildMessages(
   config: ProviderConfig,
   systemPrompt: string,
@@ -96,18 +97,13 @@ function buildMessages(
 ): CoreMessage[] {
   if (config.usePromptCache) {
     return [
-      {
-        role: 'system',
-        content: systemPrompt, // must be string — CoreSystemMessage requirement
-      },
+      { role: 'system', content: systemPrompt },
       {
         role: 'user',
         content: [
           {
             type: 'text',
             text: userPrompt,
-            // Cache the user turn too — Anthropic caches the full prefix up to
-            // this block. The system prompt above is included in that prefix.
             experimental_providerMetadata: {
               anthropic: { cacheControl: { type: 'ephemeral' } },
             },
@@ -116,7 +112,6 @@ function buildMessages(
       },
     ]
   }
-
   return [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
@@ -156,25 +151,73 @@ function buildResponse<T>(
 function guardTokenBudget(text: string, maxTokens: number): void {
   const estimate = Math.ceil(text.length / 4)
   if (estimate > maxTokens) {
-    throw new Error(
+    throw new AIProviderError(
       `[ai-provider] Input exceeds token budget.\n` +
       `Estimated ~${estimate} tokens, limit is ${maxTokens}.\n` +
-      `Trim your prompt or raise maxInputTokens in your call options.`
+      `Trim your prompt or raise maxInputTokens in your call options.`,
+      'TOKEN_BUDGET'
     )
   }
 }
 
-async function withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
-  let lastError: unknown
+/**
+ * Wraps a promise with a hard timeout.
+ * Throws an AIProviderError with code TIMEOUT if it exceeds the limit.
+ */
+async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new AIProviderError(
+        `[ai-provider] Request timed out after ${timeoutMs}ms.\n` +
+        `If using Ollama locally, the model may still be loading — try again in a few seconds.\n` +
+        `Override timeout: AI_TIMEOUT_MS=90000`,
+        'TIMEOUT'
+      ))
+    }, timeoutMs)
+  })
+
+  try {
+    const result = await Promise.race([fn(), timeoutPromise])
+    clearTimeout(timer!)
+    return result
+  } catch (err) {
+    clearTimeout(timer!)
+    throw err
+  }
+}
+
+/**
+ * Retries only transient errors (rate limit, server error, timeout).
+ * Never retries auth, billing, or validation errors — they won't recover.
+ */
+async function withRetry<T>(fn: () => Promise<T>, provider: string, maxRetries = 2): Promise<T> {
+  let lastError: AIProviderError | undefined
+
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       return await fn()
     } catch (err) {
-      lastError = err
+      // Wrap into AIProviderError for consistent classification
+      const wrapped = err instanceof AIProviderError ? err : wrapError(err, provider)
+
+      // Non-retryable — throw immediately, no backoff wasted
+      if (!isRetryable(wrapped.code)) {
+        throw wrapped
+      }
+
+      lastError = wrapped
+
       if (attempt < maxRetries) {
-        await new Promise<void>(r => setTimeout(r, 500 * Math.pow(2, attempt)))
+        const backoff = 500 * Math.pow(2, attempt) // 500ms, 1000ms
+        if (process.env.AI_LOG_USAGE === 'true') {
+          console.warn(`[ai-provider] Retrying (attempt ${attempt + 1}/${maxRetries}) after ${backoff}ms — ${wrapped.code}`)
+        }
+        await new Promise<void>(r => setTimeout(r, backoff))
       }
     }
   }
+
   throw lastError
 }
