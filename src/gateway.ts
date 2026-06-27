@@ -1,6 +1,6 @@
 /// <reference types="node" />
-import { generateObject, generateText } from 'ai'
-import type { CoreMessage } from 'ai'
+import { generateText, Output } from 'ai'
+import type { ModelMessage } from 'ai'
 import type { ZodSchema } from 'zod'
 import { resolveProvider } from './provider.js'
 import { buildModel } from './client.js'
@@ -22,6 +22,9 @@ const TIMEOUT_MS = {
 
 /**
  * generateStructured — typed, validated JSON output.
+ *
+ * Uses generateText + Output.object() (ai@6+ pattern).
+ * generateObject is deprecated in ai@6 and removed in ai@7.
  *
  * @example
  * const result = await generateStructured({
@@ -49,13 +52,18 @@ export async function generateStructured<T>(
 
   const result = await withRetry(
     () => withTimeout(
-      () => generateObject({ model, messages, schema: options.schema, maxTokens: config.maxTokens }),
+      () => generateText({
+        model,
+        messages,
+        output: Output.object({ schema: options.schema }),
+        maxOutputTokens: config.maxTokens,
+      }),
       timeout
     ),
     config.provider
   )
 
-  return buildResponse(result.object, result.usage, config, options.cacheKey)
+  return buildResponse(result.output as T, result.usage, config, options.cacheKey)
 }
 
 /**
@@ -79,7 +87,7 @@ export async function generatePlainText(
 
   const result = await withRetry(
     () => withTimeout(
-      () => generateText({ model, messages, maxTokens: config.maxTokens }),
+      () => generateText({ model, messages, maxOutputTokens: config.maxTokens }),
       timeout
     ),
     config.provider
@@ -94,7 +102,7 @@ function buildMessages(
   config: ProviderConfig,
   systemPrompt: string,
   userPrompt: string
-): CoreMessage[] {
+): ModelMessage[] {
   if (config.usePromptCache) {
     return [
       { role: 'system', content: systemPrompt },
@@ -104,7 +112,7 @@ function buildMessages(
           {
             type: 'text',
             text: userPrompt,
-            experimental_providerMetadata: {
+            providerOptions: {
               anthropic: { cacheControl: { type: 'ephemeral' } },
             },
           },
@@ -120,30 +128,23 @@ function buildMessages(
 
 function buildResponse<T>(
   data: T,
-  usage: { promptTokens: number; completionTokens: number; experimental_providerMetadata?: unknown } | undefined,
+  usage: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number; cacheCreationTokens?: number } } | undefined,
   config: ProviderConfig,
   cacheKey?: string
 ): AIResponse<T> {
   if (cacheKey) responseCache.set(cacheKey, data)
 
-  // Extract provider-side cache token counts if the provider exposes them.
-  // Reads from Anthropic's metadata shape — other providers default to 0
-  // until the Vercel AI SDK surfaces their cache metadata in the same way.
-  let cachedTokens = 0
-  if (usage?.experimental_providerMetadata) {
-    const meta = usage.experimental_providerMetadata as Record<string, unknown>
-    const anthropic = meta?.anthropic as Record<string, unknown> | undefined
-    cachedTokens =
-      ((anthropic?.cacheReadInputTokens as number) ?? 0) +
-      ((anthropic?.cacheCreationInputTokens as number) ?? 0)
-  }
+  // ai@7: cachedTokens now at inputTokenDetails.cacheReadTokens
+  const cachedTokens =
+    (usage?.inputTokenDetails?.cacheReadTokens ?? 0) +
+    (usage?.inputTokenDetails?.cacheCreationTokens ?? 0)
 
   const response: AIResponse<T> = {
     data,
     usage: usage
       ? {
-          inputTokens:  usage.promptTokens,
-          outputTokens: usage.completionTokens,
+          inputTokens:  usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
           cachedTokens,
         }
       : undefined,
@@ -156,27 +157,12 @@ function buildResponse<T>(
   return response
 }
 
-/**
- * Logs provider usage to the terminal.
- *
- * Always logs in development — so consumers see local Ollama activity.
- * In production logs only when AI_LOG_USAGE=true (opt-in to avoid log noise).
- *
- * Output example:
- *
- *   [ai-provider] ┌─────────────────────────────────────┐
- *   [ai-provider] │  provider   ollama (development)     │
- *   [ai-provider] │  model      qwen2.5-coder:14b         │
- *   [ai-provider] │  tokens     in: 320  out: 48          │
- *   [ai-provider] │  cache      hit (response cache)      │
- *   [ai-provider] └─────────────────────────────────────┘
- */
 function logUsage<T>(config: ProviderConfig, response: AIResponse<T>): void {
-  const isDev     = config.env === 'development'
-  const forceLog  = process.env.AI_LOG_USAGE === 'true'
+  const isDev    = config.env === 'development'
+  const forceLog = process.env.AI_LOG_USAGE === 'true'
   if (!isDev && !forceLog) return
 
-  const u = response.usage
+  const u     = response.usage
   const width = 41
 
   const line = (label: string, value: string) => {
@@ -189,16 +175,13 @@ function logUsage<T>(config: ProviderConfig, response: AIResponse<T>): void {
     `\x1b[2m[ai-provider]\x1b[0m ${char}${'─'.repeat(width)}${char === '┌' ? '┐' : '┘'}`
 
   const lines: string[] = [bar('┌')]
-
   lines.push(line('provider', `\x1b[36m${config.provider}\x1b[0m \x1b[2m(${config.env})\x1b[0m`))
   lines.push(line('model',    `\x1b[36m${config.model}\x1b[0m`))
 
   if (response.fromCache) {
-    lines.push(line('tokens',  '\x1b[2mskipped — response cache hit\x1b[0m'))
+    lines.push(line('tokens', '\x1b[2mskipped — response cache hit\x1b[0m'))
   } else if (u) {
-    const tokenStr = `in: \x1b[33m${u.inputTokens}\x1b[0m  out: \x1b[33m${u.outputTokens}\x1b[0m`
-    lines.push(line('tokens', tokenStr))
-
+    lines.push(line('tokens', `in: \x1b[33m${u.inputTokens}\x1b[0m  out: \x1b[33m${u.outputTokens}\x1b[0m`))
     if (u.cachedTokens > 0) {
       const pct = Math.round((u.cachedTokens / u.inputTokens) * 100)
       lines.push(line('cached', `\x1b[32m${u.cachedTokens} tokens (${pct}% of input)\x1b[0m`))
@@ -223,10 +206,6 @@ function guardTokenBudget(text: string, maxTokens: number): void {
   }
 }
 
-/**
- * Wraps a promise with a hard timeout.
- * Throws an AIProviderError with code TIMEOUT if it exceeds the limit.
- */
 async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>
 
@@ -251,10 +230,6 @@ async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<
   }
 }
 
-/**
- * Retries only transient errors (rate limit, server error, timeout).
- * Never retries auth, billing, or validation errors — they won't recover.
- */
 async function withRetry<T>(fn: () => Promise<T>, provider: string, maxRetries = 2): Promise<T> {
   let lastError: AIProviderError | undefined
 
@@ -262,10 +237,8 @@ async function withRetry<T>(fn: () => Promise<T>, provider: string, maxRetries =
     try {
       return await fn()
     } catch (err) {
-      // Wrap into AIProviderError for consistent classification
       const wrapped = err instanceof AIProviderError ? err : wrapError(err, provider)
 
-      // Non-retryable — throw immediately, no backoff wasted
       if (!isRetryable(wrapped.code)) {
         throw wrapped
       }
@@ -273,7 +246,7 @@ async function withRetry<T>(fn: () => Promise<T>, provider: string, maxRetries =
       lastError = wrapped
 
       if (attempt < maxRetries) {
-        const backoff = 500 * Math.pow(2, attempt) // 500ms, 1000ms
+        const backoff = 500 * Math.pow(2, attempt)
         if (process.env.AI_LOG_USAGE === 'true') {
           console.warn(`[ai-provider] Retrying (attempt ${attempt + 1}/${maxRetries}) after ${backoff}ms — ${wrapped.code}`)
         }
