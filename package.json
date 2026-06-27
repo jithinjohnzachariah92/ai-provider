@@ -1,6 +1,6 @@
 {
   "name": "@jz92/ai-provider",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Environment-aware AI provider for portfolio projects. Local dev → Ollama, deployed → any cloud provider.",
   "author": "jz92",
   "license": "MIT",
