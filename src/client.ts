@@ -33,27 +33,28 @@ export async function buildModel(config: ProviderConfig): Promise<LanguageModel>
 // ─── Ollama ───────────────────────────────────────────────────────────────────
 
 async function buildOllamaModel(config: ProviderConfig): Promise<LanguageModel> {
-  // Check Ollama is reachable before trying to build the model.
   await assertOllamaReachable(config.baseURL ?? 'http://localhost:11434')
 
-  // We use @ai-sdk/openai pointed at Ollama's OpenAI-compatible endpoint (/v1)
-  // rather than ollama-ai-provider, because ollama-ai-provider@1.2.0 returns
-  // LanguageModelV1 which is incompatible with ai@7 (requires LanguageModelV2+).
-  // Ollama's /v1/chat/completions endpoint is fully OpenAI-compatible.
   try {
-    const { createOpenAI } = await import('@ai-sdk/openai')
+    const mod = await import('@ai-sdk/openai')
+    const createOpenAI = mod.createOpenAI ?? mod.default?.createOpenAI
+    if (!createOpenAI) {
+      throw new AIProviderError(
+        '[ai-provider] Could not load createOpenAI from @ai-sdk/openai.',
+        'UNKNOWN', 'ollama'
+      )
+    }
     const ollama = createOpenAI({
       baseURL: `${config.baseURL}/v1`,
-      apiKey: 'ollama', // required by the client but not validated by Ollama
+      apiKey: 'ollama',
     })
     return ollama(config.model) as LanguageModel
   } catch (err) {
+    if (err instanceof AIProviderError) throw err
     if (isModuleNotFound(err)) {
       throw new AIProviderError(
-        '[ai-provider] @ai-sdk/openai is not installed.\n' +
-        'Run: npm install @ai-sdk/openai',
-        'UNKNOWN',
-        'ollama'
+        '[ai-provider] @ai-sdk/openai is not installed.\nRun: npm install @ai-sdk/openai',
+        'UNKNOWN', 'ollama'
       )
     }
     throw err
