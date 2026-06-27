@@ -79,7 +79,7 @@ console.log('\nStructured output')
 try {
   const result = await generateStructured({
     systemPrompt: 'Extract structured data. Respond only with valid JSON matching the schema.',
-    prompt: 'My name is Jithin and I live in Maidenhead.',
+    prompt: 'My name is Alex and I live in London.',
     schema: z.object({ name: z.string(), city: z.string() }),
     cacheKey: 'smoke:structured',
   })

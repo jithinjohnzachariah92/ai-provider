@@ -1,5 +1,5 @@
 /**
- * @jithin/ai-provider
+ * @jz92/ai-provider
  *
  * Environment-aware AI provider for Next.js / Node portfolio projects.
  *
@@ -8,7 +8,7 @@
  * - production   → Anthropic Sonnet with prompt caching
  *
  * Usage:
- *   import { generateStructured, generatePlainText } from '@jithin/ai-provider'
+ *   import { generateStructured, generatePlainText } from '@jz92/ai-provider'
  */
 
 export { generateStructured, generatePlainText } from './gateway.js'

@@ -11,7 +11,7 @@ const green  = '\x1b[32m'
 const dim    = '\x1b[2m'
 
 console.log(`
-${bold}@jithin/ai-provider${reset} installed successfully.
+${bold}@jz92/ai-provider${reset} installed successfully.
 
 ${yellow}Next: install the provider adapters you need.${reset}
 
