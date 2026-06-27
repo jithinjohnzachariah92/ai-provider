@@ -120,32 +120,95 @@ function buildMessages(
 
 function buildResponse<T>(
   data: T,
-  usage: { promptTokens: number; completionTokens: number } | undefined,
+  usage: { promptTokens: number; completionTokens: number; experimental_providerMetadata?: unknown } | undefined,
   config: ProviderConfig,
   cacheKey?: string
 ): AIResponse<T> {
   if (cacheKey) responseCache.set(cacheKey, data)
 
+  // Extract provider-side cache token counts if the provider exposes them.
+  // Reads from Anthropic's metadata shape — other providers default to 0
+  // until the Vercel AI SDK surfaces their cache metadata in the same way.
+  let cachedTokens = 0
+  if (usage?.experimental_providerMetadata) {
+    const meta = usage.experimental_providerMetadata as Record<string, unknown>
+    const anthropic = meta?.anthropic as Record<string, unknown> | undefined
+    cachedTokens =
+      ((anthropic?.cacheReadInputTokens as number) ?? 0) +
+      ((anthropic?.cacheCreationInputTokens as number) ?? 0)
+  }
+
   const response: AIResponse<T> = {
     data,
     usage: usage
-      ? { inputTokens: usage.promptTokens, outputTokens: usage.completionTokens, cachedTokens: 0 }
+      ? {
+          inputTokens:  usage.promptTokens,
+          outputTokens: usage.completionTokens,
+          cachedTokens,
+        }
       : undefined,
     provider: config.provider,
     model: config.model,
     fromCache: false,
   }
 
-  if (process.env.AI_LOG_USAGE === 'true') {
-    console.log('[ai-provider]', {
-      provider: config.provider,
-      model: config.model,
-      env: config.env,
-      usage: response.usage,
-    })
+  logUsage(config, response)
+  return response
+}
+
+/**
+ * Logs provider usage to the terminal.
+ *
+ * Always logs in development — so consumers see local Ollama activity.
+ * In production logs only when AI_LOG_USAGE=true (opt-in to avoid log noise).
+ *
+ * Output example:
+ *
+ *   [ai-provider] ┌─────────────────────────────────────┐
+ *   [ai-provider] │  provider   ollama (development)     │
+ *   [ai-provider] │  model      qwen2.5-coder:14b         │
+ *   [ai-provider] │  tokens     in: 320  out: 48          │
+ *   [ai-provider] │  cache      hit (response cache)      │
+ *   [ai-provider] └─────────────────────────────────────┘
+ */
+function logUsage<T>(config: ProviderConfig, response: AIResponse<T>): void {
+  const isDev     = config.env === 'development'
+  const forceLog  = process.env.AI_LOG_USAGE === 'true'
+  if (!isDev && !forceLog) return
+
+  const u = response.usage
+  const width = 41
+
+  const line = (label: string, value: string) => {
+    const content = `  ${label.padEnd(10)} ${value}`
+    const pad     = width - content.length - 1
+    return `\x1b[2m[ai-provider]\x1b[0m │${content}${' '.repeat(Math.max(0, pad))}│`
   }
 
-  return response
+  const bar = (char: string) =>
+    `\x1b[2m[ai-provider]\x1b[0m ${char}${'─'.repeat(width)}${char === '┌' ? '┐' : '┘'}`
+
+  const lines: string[] = [bar('┌')]
+
+  lines.push(line('provider', `\x1b[36m${config.provider}\x1b[0m \x1b[2m(${config.env})\x1b[0m`))
+  lines.push(line('model',    `\x1b[36m${config.model}\x1b[0m`))
+
+  if (response.fromCache) {
+    lines.push(line('tokens',  '\x1b[2mskipped — response cache hit\x1b[0m'))
+  } else if (u) {
+    const tokenStr = `in: \x1b[33m${u.inputTokens}\x1b[0m  out: \x1b[33m${u.outputTokens}\x1b[0m`
+    lines.push(line('tokens', tokenStr))
+
+    if (u.cachedTokens > 0) {
+      const pct = Math.round((u.cachedTokens / u.inputTokens) * 100)
+      lines.push(line('cached', `\x1b[32m${u.cachedTokens} tokens (${pct}% of input)\x1b[0m`))
+    }
+  } else {
+    lines.push(line('tokens', '\x1b[2munavailable\x1b[0m'))
+  }
+
+  lines.push(bar('└'))
+  lines.forEach(l => console.log(l))
 }
 
 function guardTokenBudget(text: string, maxTokens: number): void {
