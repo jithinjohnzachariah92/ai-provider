@@ -52,24 +52,29 @@ For production (Vercel, AWS, etc.) you only need an API key from your chosen pro
 ## Installation
 
 ```bash
-# In your project
 npm install @jithin/ai-provider
-
-# Required peer deps
-npm install ai zod
-
-# Add the SDK for your cloud provider (at least one)
-npm install @ai-sdk/anthropic    # Anthropic (default)
-npm install @ai-sdk/openai       # OpenAI
-npm install @ai-sdk/google       # Google Gemini
-npm install @ai-sdk/groq         # Groq
-npm install @ai-sdk/mistral      # Mistral
-
-# Local dev only
-npm install ollama-ai-provider
 ```
 
-Install only the SDKs you actually use — unused ones are never loaded.
+After install, a setup guide prints automatically telling you exactly which peer deps to install based on the providers you want to use. The short version:
+
+```bash
+# Always required
+npm install ai zod
+
+# Local dev (free, no API key)
+npm install ollama-ai-provider
+
+# Cloud — install only the provider(s) you use
+npm install @ai-sdk/anthropic    # → ANTHROPIC_API_KEY
+npm install @ai-sdk/openai       # → OPENAI_API_KEY
+npm install @ai-sdk/google       # → GOOGLE_GENERATIVE_AI_API_KEY
+npm install @ai-sdk/groq         # → GROQ_API_KEY
+npm install @ai-sdk/mistral      # → MISTRAL_API_KEY
+```
+
+**Only install adapters for providers you actually use.** Unused ones are never loaded — the package uses dynamic imports so missing adapters don't cause errors unless you try to use them.
+
+**Switching providers later is one env var change** — `AI_PROVIDER=openai` — no code changes needed in your feature files.
 
 ---
 
