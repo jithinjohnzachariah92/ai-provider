@@ -1,4 +1,4 @@
-# @jz92/ai-provider
+# @jithin/ai-provider
 
 A zero-config AI routing layer for Node.js and Next.js projects.
 
@@ -52,7 +52,7 @@ For production (Vercel, AWS, etc.) you only need an API key from your chosen pro
 ## Installation
 
 ```bash
-npm install @jz92/ai-provider
+npm install @jithin/ai-provider
 ```
 
 After install, a setup guide prints automatically telling you exactly which peer deps to install based on the providers you want to use. The short version:
@@ -81,18 +81,18 @@ npm install @ai-sdk/mistral      # → MISTRAL_API_KEY
 ## Usage
 
 ```typescript
-import { generateStructured, generatePlainText } from '@jz92/ai-provider'
+import { generateStructured, generatePlainText } from '@jithin/ai-provider'
 import { z } from 'zod'
 
 // Structured output — returns validated, typed JSON
 const result = await generateStructured({
   systemPrompt: 'Extract data. Respond in JSON only.',
-  prompt: 'My name is Jithin and I live in Maidenhead.',
+  prompt: 'Find all orders placed in the last 30 days with status delivered.',
   schema: z.object({ name: z.string(), city: z.string() }),
   cacheKey: `extract:${input}`,   // optional — skips API on repeat calls
 })
 
-console.log(result.data)        // { name: 'Jithin', city: 'Maidenhead' }
+console.log(result.data)        // { collection: 'orders', operation: 'find', query: { ... } }
 console.log(result.provider)    // 'ollama' locally · 'anthropic' in prod
 console.log(result.fromCache)   // true on cache hit
 
@@ -263,7 +263,7 @@ ollama create my-feature -f modelfiles/Modelfile.my-feature
 OLLAMA_MODEL=my-feature
 ```
 
-A `Modelfile.template` is included at `node_modules/@jz92/ai-provider/modelfiles-template/Modelfile.template`.
+A `Modelfile.template` is included at `node_modules/@jithin/ai-provider/modelfiles-template/Modelfile.template`.
 
 ---
 
@@ -286,7 +286,7 @@ Your responsibilities as a consumer:
 The package throws `AIProviderError` with a typed `code` and a clear actionable message. You never see raw SDK errors.
 
 ```typescript
-import { generateStructured, AIProviderError } from '@jz92/ai-provider'
+import { generateStructured, AIProviderError } from '@jithin/ai-provider'
 
 try {
   const result = await generateStructured({ ... })
