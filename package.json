@@ -28,7 +28,7 @@
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "type-check": "tsc --noEmit",
-    "test": "NODE_ENV=development npx tsx --tsconfig tsconfig.json test/smoke.ts",
+    "test": "NODE_ENV=development npx tsx --tsconfig tsconfig.test.json test/smoke.ts",
     "postinstall": "node scripts/postinstall.js",
     "setup:local": "bash scripts/setup-local.sh",
     "prepublishOnly": "npm run build && npm run type-check"
