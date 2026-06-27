@@ -1,18 +1,21 @@
 /// <reference types="node" />
 import type { LanguageModel } from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
+import { createAnthropic } from '@ai-sdk/anthropic'
 import type { ProviderConfig } from './types.js'
 import { AIProviderError } from './errors.js'
 
 /**
  * Builds a Vercel AI SDK model instance from a ProviderConfig.
  *
- * Guards:
- *  - Ollama unreachable → clear message + how to fix or override
- *  - No API key set     → clear message naming the exact env var needed
- *  - SDK not installed  → clear message with the exact install command
+ * Uses static imports for all providers — avoids CJS/ESM dynamic import
+ * issues in Next.js and other bundled environments.
+ *
+ * Optional providers (google, groq, mistral) still use dynamic imports
+ * since they are genuinely optional and may not be installed.
  *
  * Supported providers:
- *   ollama      ollama-ai-provider          OLLAMA_BASE_URL (optional)
+ *   ollama      @ai-sdk/openai (pointed at localhost:11434/v1)
  *   anthropic   @ai-sdk/anthropic           ANTHROPIC_API_KEY
  *   openai      @ai-sdk/openai              OPENAI_API_KEY
  *   google      @ai-sdk/google              GOOGLE_GENERATIVE_AI_API_KEY
@@ -35,26 +38,13 @@ export async function buildModel(config: ProviderConfig): Promise<LanguageModel>
 async function buildOllamaModel(config: ProviderConfig): Promise<LanguageModel> {
   await assertOllamaReachable(config.baseURL ?? 'http://localhost:11434')
 
-  try {
-    // Use @ai-sdk/openai pointed at Ollama's OpenAI-compatible /v1 endpoint.
-    // Import as namespace to handle both ESM named export and CJS default shapes.
-    const openaiMod = await import('@ai-sdk/openai')
-    const createOpenAI = openaiMod.createOpenAI
-    const ollama = createOpenAI({
-      baseURL: `${config.baseURL}/v1`,
-      apiKey: 'ollama', // required field, not validated by Ollama
-    })
-    return ollama(config.model) as LanguageModel
-  } catch (err) {
-    if (err instanceof AIProviderError) throw err
-    if (isModuleNotFound(err)) {
-      throw new AIProviderError(
-        '[ai-provider] @ai-sdk/openai is not installed.\nRun: npm install @ai-sdk/openai',
-        'UNKNOWN', 'ollama'
-      )
-    }
-    throw err
-  }
+  // Use @ai-sdk/openai pointed at Ollama's OpenAI-compatible /v1 endpoint.
+  // Static import avoids CJS/ESM interop issues in Next.js.
+  const ollama = createOpenAI({
+    baseURL: `${config.baseURL}/v1`,
+    apiKey: 'ollama', // required field, not validated by Ollama
+  })
+  return ollama(config.model) as LanguageModel
 }
 
 async function assertOllamaReachable(baseURL: string): Promise<void> {
@@ -80,26 +70,15 @@ async function assertOllamaReachable(baseURL: string): Promise<void> {
 
 async function buildAnthropicModel(config: ProviderConfig): Promise<LanguageModel> {
   assertKey('ANTHROPIC_API_KEY', 'anthropic', '@ai-sdk/anthropic')
-  try {
-    const { createAnthropic } = await import('@ai-sdk/anthropic')
-    const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-    return anthropic(config.model) as LanguageModel
-  } catch (err) {
-    if (isModuleNotFound(err)) notInstalled('@ai-sdk/anthropic')
-    throw err
-  }
+  // Static import — anthropic is the default cloud provider
+  const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  return anthropic(config.model) as LanguageModel
 }
 
 async function buildOpenAIModel(config: ProviderConfig): Promise<LanguageModel> {
   assertKey('OPENAI_API_KEY', 'openai', '@ai-sdk/openai')
-  try {
-    const { createOpenAI } = await import('@ai-sdk/openai')
-    const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    return openai(config.model) as LanguageModel
-  } catch (err) {
-    if (isModuleNotFound(err)) notInstalled('@ai-sdk/openai')
-    throw err
-  }
+  const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return openai(config.model) as LanguageModel
 }
 
 async function buildGoogleModel(config: ProviderConfig): Promise<LanguageModel> {
@@ -140,10 +119,6 @@ async function buildMistralModel(config: ProviderConfig): Promise<LanguageModel>
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Throws a clear error if the required API key env var is not set.
- * Named so the error message tells the consumer exactly what to do.
- */
 function assertKey(envVar: string, provider: string, pkg: string): void {
   if (!process.env[envVar]) {
     throw new AIProviderError(
