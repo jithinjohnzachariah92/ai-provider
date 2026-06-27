@@ -1,8 +1,14 @@
-# @jithin/ai-provider
+# @jz92/ai-provider
 
 A zero-config AI routing layer for Node.js and Next.js projects.
 
-Import one function — get Ollama locally and Anthropic/OpenAI/Groq in production, automatically, based on `NODE_ENV`. No provider-switching logic in your feature code, ever.
+Import one function — get Ollama locally and any cloud provider in production, automatically, based on `NODE_ENV`. No provider-switching logic in your feature code, ever.
+
+| Environment | Provider | Model | Cost |
+|---|---|---|---|
+| `development` | Ollama (local) | `qwen2.5-coder:14b` | $0 |
+| `test` / CI | Anthropic | `claude-haiku-4-5` | ~$0.001/req |
+| `production` | Anthropic | `claude-sonnet-4-6` | ~$0.03/req |
 
 ---
 
@@ -25,155 +31,164 @@ You bring Ollama. This package talks to it.
 
 ---
 
-## Prerequisites
+## Quick setup for a Next.js project
 
-For local development you need Ollama installed and running on your machine.
+### 1. Install production deps
 
 ```bash
-# Install (macOS)
+npm install @jz92/ai-provider @ai-sdk/anthropic ai zod
+```
+
+### 2. Install local dev dep (Ollama)
+
+```bash
+npm install ollama-ai-provider --save-dev --legacy-peer-deps
+```
+
+> **Why `--legacy-peer-deps`?**
+> `ollama-ai-provider@1.2.0` has a peer dependency conflict with `zod@4`.
+> This flag is required until `ollama-ai-provider` releases a `zod@4` compatible version.
+> This is an upstream issue and **does not affect production** — `devDependencies` are
+> never installed on Vercel or AWS.
+> Track the upstream issue: [ollama-ai-provider on GitHub](https://github.com/sgomez/ollama-ai-provider)
+
+### 3. Your `package.json` should look like this
+
+```json
+{
+  "dependencies": {
+    "@jz92/ai-provider": "^0.3.2",
+    "@ai-sdk/anthropic": "^4.0.0",
+    "ai": "^7.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "ollama-ai-provider": "^1.2.0"
+  }
+}
+```
+
+This ensures:
+- **Vercel / AWS** — `ollama-ai-provider` is never installed, no conflict, clean build
+- **Local dev** — `ollama-ai-provider` installed, Ollama runs free at `localhost:11434`
+
+### 4. Set up Ollama locally (first time only)
+
+```bash
+# Install Ollama
 brew install ollama
 
 # Start as a background service
 brew services start ollama
 
-# Pull a model (one-time, ~9GB)
+# Pull the default model (~9GB)
 ollama pull qwen2.5-coder:14b
+
+# Verify
+curl http://localhost:11434   # → Ollama is running
 ```
 
-Verify it's running:
-```bash
-curl http://localhost:11434   # should return: Ollama is running
-```
-
-For production (Vercel, AWS, etc.) you only need an API key from your chosen provider — no Ollama required.
-
----
-
-## Installation
+### 5. Set environment variables
 
 ```bash
-npm install @jithin/ai-provider
+# .env.development  (commit the .example, not the real file)
+NODE_ENV=development
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_MODEL=qwen2.5-coder:14b
+AI_LOG_USAGE=true
+
+# .env.production   (set as secrets in Vercel / AWS — never commit)
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-After install, a setup guide prints automatically telling you exactly which peer deps to install based on the providers you want to use. The short version:
+On Vercel, set `ANTHROPIC_API_KEY` in **Project Settings → Environment Variables**.
+`NODE_ENV=production` is set automatically.
 
-```bash
-# Always required
-npm install ai zod
-
-# Local dev (free, no API key)
-npm install ollama-ai-provider
-
-# Cloud — install only the provider(s) you use
-npm install @ai-sdk/anthropic    # → ANTHROPIC_API_KEY
-npm install @ai-sdk/openai       # → OPENAI_API_KEY
-npm install @ai-sdk/google       # → GOOGLE_GENERATIVE_AI_API_KEY
-npm install @ai-sdk/groq         # → GROQ_API_KEY
-npm install @ai-sdk/mistral      # → MISTRAL_API_KEY
-```
-
-**Only install adapters for providers you actually use.** Unused ones are never loaded — the package uses dynamic imports so missing adapters don't cause errors unless you try to use them.
-
-**Switching providers later is one env var change** — `AI_PROVIDER=openai` — no code changes needed in your feature files.
-
----
-
-## Usage
+### 6. Use it
 
 ```typescript
-import { generateStructured, generatePlainText } from '@jithin/ai-provider'
+import { generateStructured, generatePlainText } from '@jz92/ai-provider'
 import { z } from 'zod'
 
-// Structured output — returns validated, typed JSON
 const result = await generateStructured({
   systemPrompt: 'Extract data. Respond in JSON only.',
-  prompt: 'Find all orders placed in the last 30 days with status delivered.',
+  prompt: userInput,
   schema: z.object({ name: z.string(), city: z.string() }),
-  cacheKey: `extract:${input}`,   // optional — skips API on repeat calls
+  cacheKey: `extract:${userInput}`,
 })
 
-console.log(result.data)        // { collection: 'orders', operation: 'find', query: { ... } }
+console.log(result.data)        // { name: 'Alex', city: 'London' }
 console.log(result.provider)    // 'ollama' locally · 'anthropic' in prod
 console.log(result.fromCache)   // true on cache hit
-
-// Plain text output
-const result = await generatePlainText({
-  systemPrompt: 'You are a helpful assistant.',
-  prompt: 'Summarise this in one sentence...',
-})
 ```
 
 Your code is identical in every environment. The provider switches automatically.
 
 ---
 
-## How routing works
+## Switching cloud providers
 
-| `NODE_ENV` | Provider | Model | Cost |
-|---|---|---|---|
-| `development` | Ollama (local) | `qwen2.5-coder:14b` | $0 |
-| `test` / CI | Anthropic | `claude-haiku-4-5` | ~$0.001/req |
-| `production` | Anthropic | `claude-sonnet-4-6` | ~$0.03/req |
-
-Override anything with env vars:
+Switching from Anthropic to OpenAI (or any other provider) is one env var and one package:
 
 ```bash
-# Force a specific provider
-AI_PROVIDER=openai npm run dev
-
-# Force a specific model
-AI_MODEL=gpt-4o npm run dev
-
-# Use a custom Ollama model variant
-OLLAMA_MODEL=my-custom-model npm run dev
+npm install @ai-sdk/openai
 ```
+
+```bash
+# .env.production
+AI_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+```
+
+No code changes. Your `generateStructured()` calls are unchanged.
+
+### Supported providers
+
+| Provider | Package | Env var |
+|---|---|---|
+| Anthropic (default) | `@ai-sdk/anthropic` | `ANTHROPIC_API_KEY` |
+| OpenAI | `@ai-sdk/openai` | `OPENAI_API_KEY` |
+| Google Gemini | `@ai-sdk/google` | `GOOGLE_GENERATIVE_AI_API_KEY` |
+| Groq | `@ai-sdk/groq` | `GROQ_API_KEY` |
+| Mistral | `@ai-sdk/mistral` | `MISTRAL_API_KEY` |
+| Ollama (local) | `ollama-ai-provider` | — |
 
 ---
 
-## Setting your API key
+## Usage
 
-Keys are read from environment variables at runtime. The package never sees or stores them.
+### `generateStructured` — typed JSON output
 
-### Local dev — no key needed
-Ollama runs entirely on your machine. Just set `NODE_ENV=development` (the default).
+```typescript
+import { generateStructured } from '@jz92/ai-provider'
+import { z } from 'zod'
 
-```bash
-# .env.development
-NODE_ENV=development
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5-coder:14b
-AI_LOG_USAGE=true
+const result = await generateStructured({
+  systemPrompt: 'You are a data extraction assistant. Respond in JSON only.',
+  prompt: 'Extract name and city from: "Hi I am Alex from London"',
+  schema: z.object({ name: z.string(), city: z.string() }),
+  cacheKey: 'extract:alex',       // optional — repeat calls skip the API
+  maxInputTokens: 4000,           // optional — throws if exceeded
+})
+
+console.log(result.data)          // { name: 'Alex', city: 'London' }
+console.log(result.provider)      // 'ollama' | 'anthropic' | 'openai' ...
+console.log(result.fromCache)     // true if served from response cache
+console.log(result.usage)         // { inputTokens, outputTokens, cachedTokens }
 ```
 
-### Production — Vercel
-Set one environment variable in your Vercel project dashboard:
-```
-ANTHROPIC_API_KEY = sk-ant-...
-```
-`NODE_ENV=production` is set automatically by Vercel. Done.
+### `generatePlainText` — unstructured text output
 
-### Production — AWS (ECS / Lambda / EC2)
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-NODE_ENV=production
+```typescript
+import { generatePlainText } from '@jz92/ai-provider'
+
+const result = await generatePlainText({
+  systemPrompt: 'You are a helpful assistant.',
+  prompt: 'Summarise this in one sentence...',
+})
+
+console.log(result.data)  // the text response
 ```
-
-### CI — GitHub Actions
-```yaml
-env:
-  NODE_ENV: test
-  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-### Supported provider keys
-
-| Provider | Env var |
-|---|---|
-| Anthropic | `ANTHROPIC_API_KEY` |
-| OpenAI | `OPENAI_API_KEY` |
-| Google | `GOOGLE_GENERATIVE_AI_API_KEY` |
-| Groq | `GROQ_API_KEY` |
-| Mistral | `MISTRAL_API_KEY` |
 
 ---
 
@@ -193,107 +208,30 @@ env:
 
 ---
 
-## Architecture
-
-```mermaid
-flowchart TD
-    A["Your feature code\ngenerateStructured() · generatePlainText()"]
-    B["Gateway\ncache · token guard · retry · timeout"]
-    C["Provider resolver\nreads NODE_ENV + overrides"]
-
-    D["development\nNODE_ENV=development"]
-    E["test / CI\nNODE_ENV=test"]
-    F["production\nNODE_ENV=production"]
-
-    G["Ollama\nlocalhost:11434 · free"]
-    H["Anthropic · OpenAI\nGoogle · Groq · Mistral"]
-
-    A --> B --> C
-    C --> D --> G
-    C --> E --> H
-    C --> F --> H
-
-    style A fill:#F1EFE8,stroke:#5F5E5A
-    style B fill:#EEEDFE,stroke:#534AB7
-    style C fill:#EEEDFE,stroke:#534AB7
-    style D fill:#E1F5EE,stroke:#0F6E56
-    style E fill:#FAEEDA,stroke:#854F0B
-    style F fill:#FAECE7,stroke:#993C1D
-    style G fill:#E1F5EE,stroke:#0F6E56
-    style H fill:#FAECE7,stroke:#993C1D
-```
-
----
-
 ## What's included in the gateway
 
 Every request passes through the gateway regardless of provider:
 
-- **Response cache** — same `cacheKey` skips the API entirely. Bounded at 500 entries, 5 min TTL. Configurable via env vars.
-- **Token budget guard** — estimates input size and throws before the API call if it exceeds the limit. Set `maxInputTokens` per call.
-- **Smart retry** — retries only transient errors (rate limit, server error, timeout). Never retries auth or billing failures — those won't recover and would waste money.
-- **Hard timeout** — 60s for Ollama (model load time), 30s for cloud. Override with `AI_TIMEOUT_MS`.
-- **Prompt caching** — automatically enabled for Anthropic in production. Marks the system prompt for server-side caching, reducing input costs by ~90% on repeat calls.
-
----
-
-## Custom Ollama model variants
-
-You can bake your system prompt into a named local model using an Ollama `Modelfile`. This mirrors what prompt caching does in production — the stable context is paid once, not on every request.
-
-```dockerfile
-# modelfiles/Modelfile.my-feature
-FROM qwen2.5-coder:14b
-
-SYSTEM """
-Your stable system prompt here.
-Respond only in JSON.
-"""
-
-PARAMETER temperature 0.1
-PARAMETER num_predict 1024
-```
-
-```bash
-ollama create my-feature -f modelfiles/Modelfile.my-feature
-```
-
-```bash
-# .env.development
-OLLAMA_MODEL=my-feature
-```
-
-A `Modelfile.template` is included at `node_modules/@jithin/ai-provider/modelfiles-template/Modelfile.template`.
-
----
-
-## Security
-
-This package reads API keys from environment variables and passes them directly to the provider SDK over HTTPS. Keys are never logged, stored, or transmitted by this package.
-
-Your responsibilities as a consumer:
-
-- Never commit `.env` or `.env.local` — add both to `.gitignore`
-- Never log `process.env` in application code
-- Use `.env.example` with placeholder values for documentation
-- Use deployment secrets (Vercel dashboard / AWS Secrets Manager) in production
-- Rotate keys immediately if accidentally exposed
+- **Response cache** — same `cacheKey` skips the API entirely. Bounded at 500 entries, 5 min TTL.
+- **Token budget guard** — throws before the API call if input exceeds `maxInputTokens`.
+- **Smart retry** — retries only transient errors (429, 500, timeout). Never retries auth or billing failures.
+- **Hard timeout** — 60s for Ollama, 30s for cloud. Override with `AI_TIMEOUT_MS`.
+- **Prompt caching** — automatically enabled for Anthropic in production. Reduces input costs by ~90% on repeat calls.
+- **Usage logging** — formatted terminal output in development showing provider, model, and token counts.
 
 ---
 
 ## Error handling
 
-The package throws `AIProviderError` with a typed `code` and a clear actionable message. You never see raw SDK errors.
-
 ```typescript
-import { generateStructured, AIProviderError } from '@jithin/ai-provider'
+import { generateStructured, AIProviderError } from '@jz92/ai-provider'
 
 try {
   const result = await generateStructured({ ... })
 } catch (err) {
   if (err instanceof AIProviderError) {
-    console.error(err.code)    // 'AUTH_ERROR' | 'BILLING_ERROR' | 'RATE_LIMIT' | etc.
-    console.error(err.message) // tells you exactly what to do
+    console.error(err.code)    // 'AUTH_ERROR' | 'RATE_LIMIT' | 'TIMEOUT' | etc.
+    console.error(err.message) // actionable message with exact steps to fix
   }
 }
 ```
@@ -342,6 +280,49 @@ try {
 
 ---
 
+## Architecture
+
+```mermaid
+flowchart TD
+    A["Your feature code\ngenerateStructured() · generatePlainText()"]
+    B["Gateway\ncache · token guard · retry · timeout"]
+    C["Provider resolver\nreads NODE_ENV + overrides"]
+
+    D["development\nNODE_ENV=development"]
+    E["test / CI\nNODE_ENV=test"]
+    F["production\nNODE_ENV=production"]
+
+    G["Ollama\nlocalhost:11434 · free"]
+    H["Anthropic · OpenAI\nGoogle · Groq · Mistral"]
+
+    A --> B --> C
+    C --> D --> G
+    C --> E --> H
+    C --> F --> H
+
+    style A fill:#F1EFE8,stroke:#5F5E5A
+    style B fill:#EEEDFE,stroke:#534AB7
+    style C fill:#EEEDFE,stroke:#534AB7
+    style D fill:#E1F5EE,stroke:#0F6E56
+    style E fill:#FAEEDA,stroke:#854F0B
+    style F fill:#FAECE7,stroke:#993C1D
+    style G fill:#E1F5EE,stroke:#0F6E56
+    style H fill:#FAECE7,stroke:#993C1D
+```
+
+---
+
+## Security
+
+This package reads API keys from environment variables and passes them directly to the provider SDK over HTTPS. Keys are never logged, stored, or transmitted by this package.
+
+- Never commit `.env` or `.env.local` — add both to `.gitignore`
+- Never log `process.env` in application code
+- Use deployment secrets (Vercel / AWS Secrets Manager) in production
+- Rotate keys immediately if accidentally exposed
+
+---
+
 ## Running tests
 
 ```bash
@@ -349,19 +330,16 @@ try {
 npm test
 ```
 
-Expected: 23 passed.
+Expected: 27 passed.
 
 ---
 
-## Publishing
+## Reference implementation
 
-```bash
-npm run build
-npm publish --access public
-```
+See [portfolio-lab](https://github.com/jithinjohnzachariah92/portfolio-lab) for a working Next.js project using this package across multiple AI-powered features.
 
 ---
 
 ## Repo
 
-[github.com/jithinjohnzachariah92/ai-provider](https://github.com/jithinjohnzachariah92/ai-provider)
+[github.com/jithinjohnzachariah92/ai-provider](https://github.com/jithinjohnzachariah92/ai-provider) · [npmjs.com/package/@jz92/ai-provider](https://www.npmjs.com/package/@jz92/ai-provider)

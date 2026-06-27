@@ -47,13 +47,14 @@ export async function generateStructured<T>(
   guardTokenBudget(options.systemPrompt + options.prompt, options.maxInputTokens ?? 8000)
 
   const model    = await buildModel(config)
-  const messages = buildMessages(config, options.systemPrompt, options.prompt)
+  const { system, messages } = buildMessages(config, options.systemPrompt, options.prompt)
   const timeout  = TIMEOUT_MS[config.provider]
 
   const result = await withRetry(
     () => withTimeout(
       () => generateText({
         model,
+        system,
         messages,
         output: Output.object({ schema: options.schema }),
         maxOutputTokens: config.maxTokens,
@@ -82,12 +83,12 @@ export async function generatePlainText(
   guardTokenBudget(options.systemPrompt + options.prompt, options.maxInputTokens ?? 8000)
 
   const model    = await buildModel(config)
-  const messages = buildMessages(config, options.systemPrompt, options.prompt)
+  const { system, messages } = buildMessages(config, options.systemPrompt, options.prompt)
   const timeout  = TIMEOUT_MS[config.provider]
 
   const result = await withRetry(
     () => withTimeout(
-      () => generateText({ model, messages, maxOutputTokens: config.maxTokens }),
+      () => generateText({ model, system, messages, maxOutputTokens: config.maxTokens }),
       timeout
     ),
     config.provider
@@ -102,28 +103,30 @@ function buildMessages(
   config: ProviderConfig,
   systemPrompt: string,
   userPrompt: string
-): ModelMessage[] {
+): { system: string; messages: ModelMessage[] } {
   if (config.usePromptCache) {
-    return [
-      { role: 'system', content: systemPrompt },
-      {
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: userPrompt,
-            providerOptions: {
-              anthropic: { cacheControl: { type: 'ephemeral' } },
+    return {
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: userPrompt,
+              providerOptions: {
+                anthropic: { cacheControl: { type: 'ephemeral' } },
+              },
             },
-          },
-        ],
-      },
-    ]
+          ],
+        },
+      ],
+    }
   }
-  return [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
-  ]
+  return {
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  }
 }
 
 function buildResponse<T>(

@@ -34,19 +34,24 @@ export async function buildModel(config: ProviderConfig): Promise<LanguageModel>
 
 async function buildOllamaModel(config: ProviderConfig): Promise<LanguageModel> {
   // Check Ollama is reachable before trying to build the model.
-  // Gives a clean actionable error instead of a raw ECONNREFUSED.
   await assertOllamaReachable(config.baseURL ?? 'http://localhost:11434')
 
+  // We use @ai-sdk/openai pointed at Ollama's OpenAI-compatible endpoint (/v1)
+  // rather than ollama-ai-provider, because ollama-ai-provider@1.2.0 returns
+  // LanguageModelV1 which is incompatible with ai@7 (requires LanguageModelV2+).
+  // Ollama's /v1/chat/completions endpoint is fully OpenAI-compatible.
   try {
-    const { createOllama } = await import('ollama-ai-provider')
-    const ollama = createOllama({ baseURL: `${config.baseURL}/api` })
-    return ollama(config.model) as unknown as LanguageModel
+    const { createOpenAI } = await import('@ai-sdk/openai')
+    const ollama = createOpenAI({
+      baseURL: `${config.baseURL}/v1`,
+      apiKey: 'ollama', // required by the client but not validated by Ollama
+    })
+    return ollama(config.model) as LanguageModel
   } catch (err) {
-    // Only gets here if ollama-ai-provider isn't installed
     if (isModuleNotFound(err)) {
       throw new AIProviderError(
-        '[ai-provider] ollama-ai-provider is not installed.\n' +
-        'Run: npm install ollama-ai-provider',
+        '[ai-provider] @ai-sdk/openai is not installed.\n' +
+        'Run: npm install @ai-sdk/openai',
         'UNKNOWN',
         'ollama'
       )

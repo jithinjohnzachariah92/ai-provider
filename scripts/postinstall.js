@@ -6,7 +6,6 @@ const cyan   = '\x1b[36m'
 const yellow = '\x1b[33m'
 const green  = '\x1b[32m'
 const dim    = '\x1b[2m'
-const red    = '\x1b[31m'
 
 console.log(`
 ${bold}@jz92/ai-provider${reset} installed successfully.
@@ -23,13 +22,10 @@ ${bold}Cloud providers — install only what you use:${reset}
   ${cyan}npm install @ai-sdk/groq${reset}         ${dim}→ GROQ_API_KEY        https://console.groq.com/keys${reset}
   ${cyan}npm install @ai-sdk/mistral${reset}      ${dim}→ MISTRAL_API_KEY     https://console.mistral.ai${reset}
 
-${bold}Local dev with Ollama (devDependency — not for production):${reset}
-  ${cyan}npm install ollama-ai-provider --save-dev --legacy-peer-deps${reset}
-  ${dim}Then: brew install ollama && ollama pull qwen2.5-coder:14b${reset}
-
-  ${red}Note:${reset} ollama-ai-provider@1.2.0 conflicts with zod@4.
-  ${dim}--legacy-peer-deps is required until ollama-ai-provider updates.${reset}
-  ${dim}This does not affect production builds — devDependencies are excluded on Vercel/AWS.${reset}
+${bold}Local dev with Ollama:${reset}
+  ${dim}Ollama uses @ai-sdk/openai pointed at localhost:11434/v1${reset}
+  ${dim}No extra package needed — just install Ollama and pull a model:${reset}
+  ${cyan}brew install ollama && ollama pull qwen2.5-coder:14b${reset}
 
 ${bold}Set NODE_ENV in your .env:${reset}
   ${dim}development${reset}  → Ollama (free, local)
