@@ -34,5 +34,5 @@ ${bold}Set NODE_ENV in your .env:${reset}
   ${dim}test${reset}         → cheapest cloud model  (CI)
   ${dim}production${reset}   → best cloud model      (deployed)
 
-${green}Docs: https://github.com/jithinjohnzachariah92/ai-provider${reset}
+${green}Docs: https://github.com/jithinjohnzachariah92/ai-provider (npm: @jz92/ai-provider)${reset}
 `)

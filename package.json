@@ -1,5 +1,5 @@
 {
-  "name": "@jithin/ai-provider",
+  "name": "@jz92/ai-provider",
   "version": "0.2.0",
   "description": "Environment-aware AI provider for portfolio projects. Local dev → Ollama, deployed → any cloud provider.",
   "author": "Jithin Zachariah",
