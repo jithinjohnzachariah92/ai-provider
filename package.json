@@ -1,12 +1,11 @@
 {
   "name": "@jz92/ai-provider",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Environment-aware AI provider for portfolio projects. Local dev → Ollama, deployed → any cloud provider.",
   "author": "jz92",
   "license": "MIT",
   "private": false,
   "type": "module",
-
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +22,6 @@
     "scripts",
     "README.md"
   ],
-
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
@@ -32,7 +30,6 @@
     "setup:local": "bash scripts/setup-local.sh",
     "prepublishOnly": "npm run build && npm run type-check"
   },
-
   "peerDependencies": {
     "ai": ">=6.0.0",
     "zod": ">=3.0.0",
@@ -44,14 +41,25 @@
     "ollama-ai-provider": ">=1.0.0"
   },
   "peerDependenciesMeta": {
-    "@ai-sdk/anthropic":  { "optional": true },
-    "@ai-sdk/openai":     { "optional": true },
-    "@ai-sdk/google":     { "optional": true },
-    "@ai-sdk/groq":       { "optional": true },
-    "@ai-sdk/mistral":    { "optional": true },
-    "ollama-ai-provider": { "optional": true }
+    "@ai-sdk/anthropic": {
+      "optional": true
+    },
+    "@ai-sdk/openai": {
+      "optional": true
+    },
+    "@ai-sdk/google": {
+      "optional": true
+    },
+    "@ai-sdk/groq": {
+      "optional": true
+    },
+    "@ai-sdk/mistral": {
+      "optional": true
+    },
+    "ollama-ai-provider": {
+      "optional": true
+    }
   },
-
   "devDependencies": {
     "typescript": "^5.4.0",
     "tsup": "^8.0.0",
@@ -66,7 +74,19 @@
     "@ai-sdk/mistral": "^1.0.0",
     "ollama-ai-provider": "^0.16.0"
   },
-
-  "engines": { "node": ">=18.0.0" },
-  "keywords": ["ai", "ollama", "anthropic", "openai", "google", "groq", "mistral", "vercel-ai-sdk", "llm", "provider"]
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "ai",
+    "ollama",
+    "anthropic",
+    "openai",
+    "google",
+    "groq",
+    "mistral",
+    "vercel-ai-sdk",
+    "llm",
+    "provider"
+  ]
 }
