@@ -6,14 +6,15 @@
   "license": "MIT",
   "private": false,
   "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.mjs",
+
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.js"
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
     }
   },
   "files": [
@@ -22,15 +23,16 @@
     "scripts",
     "README.md"
   ],
+
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
     "type-check": "tsc --noEmit",
     "test": "NODE_ENV=development npx tsx --tsconfig tsconfig.test.json test/smoke.ts",
-    "postinstall": "node scripts/postinstall.js",
     "setup:local": "bash scripts/setup-local.sh",
     "prepublishOnly": "npm run build && npm run type-check"
   },
+
   "peerDependencies": {
     "ai": ">=4.0.0",
     "zod": ">=3.0.0",
@@ -42,25 +44,14 @@
     "ollama-ai-provider": ">=0.16.0"
   },
   "peerDependenciesMeta": {
-    "@ai-sdk/anthropic": {
-      "optional": true
-    },
-    "@ai-sdk/openai": {
-      "optional": true
-    },
-    "@ai-sdk/google": {
-      "optional": true
-    },
-    "@ai-sdk/groq": {
-      "optional": true
-    },
-    "@ai-sdk/mistral": {
-      "optional": true
-    },
-    "ollama-ai-provider": {
-      "optional": true
-    }
+    "@ai-sdk/anthropic":  { "optional": true },
+    "@ai-sdk/openai":     { "optional": true },
+    "@ai-sdk/google":     { "optional": true },
+    "@ai-sdk/groq":       { "optional": true },
+    "@ai-sdk/mistral":    { "optional": true },
+    "ollama-ai-provider": { "optional": true }
   },
+
   "devDependencies": {
     "typescript": "^5.4.0",
     "tsup": "^8.0.0",
@@ -75,19 +66,7 @@
     "@ai-sdk/mistral": "^1.0.0",
     "ollama-ai-provider": "^0.16.0"
   },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "keywords": [
-    "ai",
-    "ollama",
-    "anthropic",
-    "openai",
-    "google",
-    "groq",
-    "mistral",
-    "vercel-ai-sdk",
-    "llm",
-    "provider"
-  ]
+
+  "engines": { "node": ">=18.0.0" },
+  "keywords": ["ai", "ollama", "anthropic", "openai", "google", "groq", "mistral", "vercel-ai-sdk", "llm", "provider"]
 }
