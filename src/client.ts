@@ -36,17 +36,13 @@ async function buildOllamaModel(config: ProviderConfig): Promise<LanguageModel> 
   await assertOllamaReachable(config.baseURL ?? 'http://localhost:11434')
 
   try {
-    const mod = await import('@ai-sdk/openai')
-    const createOpenAI = mod.createOpenAI ?? mod.default?.createOpenAI
-    if (!createOpenAI) {
-      throw new AIProviderError(
-        '[ai-provider] Could not load createOpenAI from @ai-sdk/openai.',
-        'UNKNOWN', 'ollama'
-      )
-    }
+    // Use @ai-sdk/openai pointed at Ollama's OpenAI-compatible /v1 endpoint.
+    // Import as namespace to handle both ESM named export and CJS default shapes.
+    const openaiMod = await import('@ai-sdk/openai')
+    const createOpenAI = openaiMod.createOpenAI
     const ollama = createOpenAI({
       baseURL: `${config.baseURL}/v1`,
-      apiKey: 'ollama',
+      apiKey: 'ollama', // required field, not validated by Ollama
     })
     return ollama(config.model) as LanguageModel
   } catch (err) {
