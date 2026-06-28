@@ -31,73 +31,38 @@ You bring Ollama. This package talks to it.
 
 ---
 
-## Quick setup for a Next.js project
+## Quick setup
 
-### 1. Install production deps
-
-```bash
-npm install @jz92/ai-provider @ai-sdk/anthropic ai zod
-```
-
-### 2. Install local dev dep (Ollama)
+### 1. Install
 
 ```bash
-npm install ollama-ai-provider --save-dev --legacy-peer-deps
+npm install @jz92/ai-provider zod
 ```
 
-> **Why `--legacy-peer-deps`?**
-> `ollama-ai-provider@1.2.0` has a peer dependency conflict with `zod@4`.
-> This flag is required until `ollama-ai-provider` releases a `zod@4` compatible version.
-> This is an upstream issue and **does not affect production** — `devDependencies` are
-> never installed on Vercel or AWS.
-> Track the upstream issue: [ollama-ai-provider on GitHub](https://github.com/sgomez/ollama-ai-provider)
+That's it. `ai`, `@ai-sdk/anthropic`, and `@ai-sdk/openai` are bundled as dependencies — no separate installs, no peer dependency warnings, no bundler config.
 
-### 3. Your `package.json` should look like this
+> Optional providers (Google, Groq, Mistral) install automatically if available.
+> If you want to use one explicitly: `npm install @ai-sdk/google` (or groq / mistral).
 
-```json
-{
-  "dependencies": {
-    "@jz92/ai-provider": "^0.3.2",
-    "@ai-sdk/anthropic": "^4.0.0",
-    "ai": "^7.0.0",
-    "zod": "^4.0.0"
-  },
-  "devDependencies": {
-    "ollama-ai-provider": "^1.2.0"
-  }
-}
-```
-
-This ensures:
-- **Vercel / AWS** — `ollama-ai-provider` is never installed, no conflict, clean build
-- **Local dev** — `ollama-ai-provider` installed, Ollama runs free at `localhost:11434`
-
-### 4. Set up Ollama locally (first time only)
+### 2. Set up Ollama for local dev (first time only)
 
 ```bash
-# Install Ollama
 brew install ollama
-
-# Start as a background service
 brew services start ollama
-
-# Pull the default model (~9GB)
 ollama pull qwen2.5-coder:14b
-
-# Verify
 curl http://localhost:11434   # → Ollama is running
 ```
 
-### 5. Set environment variables
+### 3. Set environment variables
 
 ```bash
-# .env.development  (commit the .example, not the real file)
+# .env.development  (local — no API key needed)
 NODE_ENV=development
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5-coder:14b
 AI_LOG_USAGE=true
 
-# .env.production   (set as secrets in Vercel / AWS — never commit)
+# .env.production   (set as secret in Vercel / AWS — never commit)
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
