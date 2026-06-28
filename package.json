@@ -1,12 +1,11 @@
 {
   "name": "@jz92/ai-provider",
-  "version": "0.4.3",
+  "version": "0.5.0",
   "description": "Environment-aware AI provider for portfolio projects. Local dev → Ollama, deployed → any cloud provider. Zero config — just install and use.",
   "author": "jz92",
   "license": "MIT",
   "private": false,
   "type": "module",
-
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +22,6 @@
     "scripts",
     "README.md"
   ],
-
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "dev": "tsup src/index.ts --format esm,cjs --dts --watch",
@@ -32,23 +30,19 @@
     "setup:local": "bash scripts/setup-local.sh",
     "prepublishOnly": "npm run build && npm run type-check"
   },
-
   "dependencies": {
     "ai": "^7.0.0",
     "@ai-sdk/anthropic": "^4.0.0",
     "@ai-sdk/openai": "^3.0.0"
   },
-
   "peerDependencies": {
     "zod": ">=3.0.0"
   },
-
   "optionalDependencies": {
     "@ai-sdk/google": "^3.0.0",
     "@ai-sdk/groq": "^3.0.0",
     "@ai-sdk/mistral": "^3.0.0"
   },
-
   "devDependencies": {
     "typescript": "^5.4.0",
     "tsup": "^8.0.0",
@@ -59,7 +53,19 @@
     "@ai-sdk/groq": "^3.0.0",
     "@ai-sdk/mistral": "^3.0.0"
   },
-
-  "engines": { "node": ">=18.0.0" },
-  "keywords": ["ai", "ollama", "anthropic", "openai", "google", "groq", "mistral", "vercel-ai-sdk", "llm", "provider"]
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "ai",
+    "ollama",
+    "anthropic",
+    "openai",
+    "google",
+    "groq",
+    "mistral",
+    "vercel-ai-sdk",
+    "llm",
+    "provider"
+  ]
 }
