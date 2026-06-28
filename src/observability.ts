@@ -45,14 +45,23 @@ export type AIEvent = {
 
 type AIEventHandler = (event: AIEvent) => void
 
-let handler: AIEventHandler | null = null
+// Store the handler on globalThis rather than a module-level variable.
+// Next.js (and other bundlers) can load this module in separate bundle
+// contexts — instrumentation runtime vs API route — each with its own
+// module scope. A module-level variable would not be shared across them.
+// globalThis is shared across all bundles in the same process.
+const GLOBAL_KEY = '__aiProviderEventHandler__'
+
+type GlobalWithHandler = typeof globalThis & {
+  [GLOBAL_KEY]?: AIEventHandler | null
+}
 
 /**
  * Register a handler for all AI provider events.
  * Call once at app startup. Replaces any previously registered handler.
  */
 export function onAIEvent(fn: AIEventHandler): void {
-  handler = fn
+  (globalThis as GlobalWithHandler)[GLOBAL_KEY] = fn
 }
 
 /**
@@ -60,11 +69,12 @@ export function onAIEvent(fn: AIEventHandler): void {
  * Falls back to console if no handler is registered.
  */
 export function emitEvent(event: AIEvent): void {
+  const handler = (globalThis as GlobalWithHandler)[GLOBAL_KEY]
+
   if (handler) {
     try {
       handler(event)
     } catch (err) {
-      // A broken handler must never break the actual request
       console.error('[ai-provider] event handler threw:', err)
     }
     return
@@ -72,13 +82,8 @@ export function emitEvent(event: AIEvent): void {
 
   // Default behaviour when no handler registered
   if (process.env.NODE_ENV === 'production') {
-    // Structured JSON — parseable by log aggregators
     console.log(JSON.stringify({ source: 'ai-provider', ...event }))
-  }
-  // In development the formatted box logger (in gateway) handles display,
-  // so we stay quiet here to avoid duplicate output — except for failures,
-  // which always deserve visibility.
-  else if (event.type === 'request.failure') {
+  } else if (event.type === 'request.failure') {
     console.error(
       `[ai-provider] ${event.error?.code} after ${event.durationMs}ms ` +
       `(${event.provider}/${event.model}): ${event.error?.message}`
