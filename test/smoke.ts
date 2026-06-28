@@ -119,7 +119,31 @@ try {
   log(false, 'error classification', String(err))
 }
 
-// ── 8. Timeout config ─────────────────────────────────────────────────────────
+// ── Observability events ──────────────────────────────────────────────────────
+console.log('\nObservability events')
+try {
+  const { onAIEvent } = await import('../src/index.js')
+  const captured: any[] = []
+  onAIEvent((event) => captured.push(event))
+
+  await generatePlainText({
+    systemPrompt: 'You are a helpful assistant. One word answers.',
+    prompt: 'Say hello',
+    correlationId: 'test-correlation-123',
+  })
+
+  const successEvent = captured.find(e => e.type === 'request.success')
+  log(successEvent !== undefined, 'emits request.success event')
+  log(successEvent?.correlationId === 'test-correlation-123', 'event carries correlationId')
+  log(typeof successEvent?.durationMs === 'number', 'event has durationMs')
+  log(successEvent?.provider === 'ollama', 'event has provider')
+
+  onAIEvent(() => {}) // reset
+} catch (err) {
+  log(false, 'observability events', String(err))
+}
+
+// ── Timeout config ─────────────────────────────────────────────────────────────
 console.log('\nTimeout config')
 log(
   config.provider === 'ollama',

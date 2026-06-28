@@ -1,20 +1,19 @@
-import { defineConfig } from 'tsup'
-
-export default defineConfig({
-  entry: ['src/index.ts'],
-  format: ['esm', 'cjs'],
-  dts: true,
-  clean: true,
-  // Keep all dependencies external — they resolve from the consumer's
-  // node_modules at runtime. This keeps the published package small
-  // (~18KB instead of 1.1MB) and avoids duplicate copies of the AI SDK.
-  external: [
-    'ai',
-    'zod',
-    '@ai-sdk/anthropic',
-    '@ai-sdk/openai',
-    '@ai-sdk/google',
-    '@ai-sdk/groq',
-    '@ai-sdk/mistral',
-  ],
-})
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "lib": ["ES2020", "DOM"],
+    "strict": true,
+    "skipLibCheck": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "esModuleInterop": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "scripts"]
+}

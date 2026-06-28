@@ -197,7 +197,62 @@ Every request passes through the gateway regardless of provider:
 
 ---
 
-## Error handling
+## Observability
+
+Register a single handler at app startup to forward structured events to your observability stack — Datadog, CloudWatch, Sentry, Pino, anything.
+
+```typescript
+import { onAIEvent } from '@jz92/ai-provider'
+
+onAIEvent((event) => {
+  logger.info({ source: 'ai-provider', ...event })
+})
+```
+
+Every request emits a structured event:
+
+```json
+{
+  "type": "request.failure",
+  "timestamp": "2026-06-28T10:15:30.123Z",
+  "provider": "ollama",
+  "model": "qwen2.5-coder:14b",
+  "env": "development",
+  "durationMs": 3012,
+  "error": { "code": "TIMEOUT", "message": "Request timed out after 60000ms..." },
+  "correlationId": "req-abc-123"
+}
+```
+
+### Event types
+
+| Type | When | Key fields |
+|---|---|---|
+| `request.success` | Request completed | `durationMs`, `usage` |
+| `request.failure` | Request failed (after retries) | `durationMs`, `error` |
+| `request.retry` | Transient error, retrying | `attempt`, `error` |
+| `cache.hit` | Served from response cache | — |
+
+### Correlation IDs
+
+Pass `correlationId` on any request to trace it across your services:
+
+```typescript
+await generateStructured({
+  systemPrompt: '...',
+  prompt: input,
+  schema: MySchema,
+  correlationId: req.headers['x-request-id'],
+})
+```
+
+This is what makes graceful degradation observable: even when your app catches the error and shows the user a fallback, the failure event still fires with the full context — provider, model, timing, error code, and correlation ID — so your monitoring captures exactly what happened.
+
+If no handler is registered, failures still log to console (formatted in dev, JSON in production) so nothing fails silently.
+
+---
+
+
 
 ```typescript
 import { generateStructured, AIProviderError } from '@jz92/ai-provider'

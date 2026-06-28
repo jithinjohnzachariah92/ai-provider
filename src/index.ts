@@ -15,7 +15,9 @@ export { generateStructured, generatePlainText } from './gateway.js'
 export { resolveProvider } from './provider.js'
 export { responseCache } from './cache.js'
 export { AIProviderError } from './errors.js'
+export { onAIEvent } from './observability.js'
 export type { AIErrorCode } from './errors.js'
+export type { AIEvent, AIEventType } from './observability.js'
 export type {
   AIResponse,
   AIRequestOptions,

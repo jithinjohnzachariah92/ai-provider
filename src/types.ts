@@ -22,6 +22,8 @@ export type AIRequestOptions<T = string> = {
   cacheKey?: string
   /** Rough token ceiling on input. Throws before the API call if exceeded. Default 8000. */
   maxInputTokens?: number
+  /** Optional correlation ID for tracing this request across services in your logs */
+  correlationId?: string
 }
 
 export type AIResponse<T> = {

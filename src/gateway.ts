@@ -6,9 +6,9 @@ import { resolveProvider } from './provider.js'
 import { buildModel } from './client.js'
 import { responseCache } from './cache.js'
 import { wrapError, isRetryable, AIProviderError } from './errors.js'
+import { emitEvent } from './observability.js'
 import type { AIRequestOptions, AIResponse, ProviderConfig } from './types.js'
 
-// Default request timeout — 30s for cloud, 60s for local Ollama (model load time)
 const TIMEOUT_MS = {
   ollama:    parseInt(process.env.AI_TIMEOUT_MS ?? '60000', 10),
   anthropic: parseInt(process.env.AI_TIMEOUT_MS ?? '30000', 10),
@@ -20,27 +20,22 @@ const TIMEOUT_MS = {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/**
- * generateStructured — typed, validated JSON output.
- *
- * Uses generateText + Output.object() (ai@6+ pattern).
- * generateObject is deprecated in ai@6 and removed in ai@7.
- *
- * @example
- * const result = await generateStructured({
- *   systemPrompt: MY_SYSTEM_PROMPT,
- *   prompt: userInput,
- *   schema: z.object({ name: z.string() }),
- *   cacheKey: `parse:${userInput}`,
- * })
- */
 export async function generateStructured<T>(
   options: AIRequestOptions<T> & { schema: ZodSchema<T> }
 ): Promise<AIResponse<T>> {
   const config = resolveProvider()
 
+  // Cache check — emit a cache.hit event so cache effectiveness is observable
   const cached = responseCache.get<T>(options.cacheKey ?? '')
   if (cached && options.cacheKey) {
+    emitEvent({
+      type: 'cache.hit',
+      timestamp: new Date().toISOString(),
+      provider: config.provider,
+      model: config.model,
+      env: config.env,
+      correlationId: options.correlationId,
+    })
     return { data: cached, provider: config.provider, model: config.model, fromCache: true }
   }
 
@@ -50,26 +45,18 @@ export async function generateStructured<T>(
   const { system, messages } = buildMessages(config, options.systemPrompt, options.prompt)
   const timeout  = TIMEOUT_MS[config.provider]
 
-  const result = await withRetry(
-    () => withTimeout(
-      () => generateText({
-        model,
-        system,
-        messages,
-        output: Output.object({ schema: options.schema }),
-        maxOutputTokens: config.maxTokens,
-      }),
-      timeout
-    ),
-    config.provider
+  const result = await execute(
+    () => generateText({
+      model, system, messages,
+      output: Output.object({ schema: options.schema }),
+      maxOutputTokens: config.maxTokens,
+    }),
+    config, timeout, options.correlationId
   )
 
   return buildResponse(result.output as T, result.usage, config, options.cacheKey)
 }
 
-/**
- * generatePlainText — unstructured text output.
- */
 export async function generatePlainText(
   options: Omit<AIRequestOptions, 'schema'>
 ): Promise<AIResponse<string>> {
@@ -77,6 +64,14 @@ export async function generatePlainText(
 
   const cached = responseCache.get<string>(options.cacheKey ?? '')
   if (cached && options.cacheKey) {
+    emitEvent({
+      type: 'cache.hit',
+      timestamp: new Date().toISOString(),
+      provider: config.provider,
+      model: config.model,
+      env: config.env,
+      correlationId: options.correlationId,
+    })
     return { data: cached, provider: config.provider, model: config.model, fromCache: true }
   }
 
@@ -86,15 +81,95 @@ export async function generatePlainText(
   const { system, messages } = buildMessages(config, options.systemPrompt, options.prompt)
   const timeout  = TIMEOUT_MS[config.provider]
 
-  const result = await withRetry(
-    () => withTimeout(
-      () => generateText({ model, system, messages, maxOutputTokens: config.maxTokens }),
-      timeout
-    ),
-    config.provider
+  const result = await execute(
+    () => generateText({ model, system, messages, maxOutputTokens: config.maxTokens }),
+    config, timeout, options.correlationId
   )
 
   return buildResponse(result.text, result.usage, config, options.cacheKey)
+}
+
+// ─── Instrumented execution ─────────────────────────────────────────────────────
+// Single path for timing, retry, timeout, and event emission.
+// Both public methods route through here so observability is consistent.
+
+async function execute<T>(
+  fn: () => Promise<T>,
+  config: ProviderConfig,
+  timeoutMs: number,
+  correlationId?: string
+): Promise<T> {
+  const start = Date.now()
+  let lastError: AIProviderError | undefined
+
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    try {
+      const result = await withTimeout(fn, timeoutMs)
+
+      // Success — emit event with timing. Usage detail is added by the caller
+      // via buildResponse, but the success signal + duration live here where
+      // we have the timing context.
+      emitEvent({
+        type: 'request.success',
+        timestamp: new Date().toISOString(),
+        provider: config.provider,
+        model: config.model,
+        env: config.env,
+        durationMs: Date.now() - start,
+        usage: extractUsage(result),
+        correlationId,
+      })
+      return result
+
+    } catch (err) {
+      const wrapped = err instanceof AIProviderError ? err : wrapError(err, config.provider)
+
+      if (!isRetryable(wrapped.code)) {
+        emitEvent({
+          type: 'request.failure',
+          timestamp: new Date().toISOString(),
+          provider: config.provider,
+          model: config.model,
+          env: config.env,
+          durationMs: Date.now() - start,
+          error: { code: wrapped.code, message: wrapped.message },
+          correlationId,
+        })
+        throw wrapped
+      }
+
+      lastError = wrapped
+
+      if (attempt < 2) {
+        const backoff = 500 * Math.pow(2, attempt)
+        emitEvent({
+          type: 'request.retry',
+          timestamp: new Date().toISOString(),
+          provider: config.provider,
+          model: config.model,
+          env: config.env,
+          durationMs: Date.now() - start,
+          attempt: attempt + 1,
+          error: { code: wrapped.code, message: wrapped.message },
+          correlationId,
+        })
+        await new Promise<void>(r => setTimeout(r, backoff))
+      }
+    }
+  }
+
+  // All retries exhausted
+  emitEvent({
+    type: 'request.failure',
+    timestamp: new Date().toISOString(),
+    provider: config.provider,
+    model: config.model,
+    env: config.env,
+    durationMs: Date.now() - start,
+    error: lastError ? { code: lastError.code, message: lastError.message } : { code: 'UNKNOWN', message: 'exhausted retries' },
+    correlationId,
+  })
+  throw lastError
 }
 
 // ─── Internals ────────────────────────────────────────────────────────────────
@@ -137,7 +212,6 @@ function buildResponse<T>(
 ): AIResponse<T> {
   if (cacheKey) responseCache.set(cacheKey, data)
 
-  // ai@7: cachedTokens now at inputTokenDetails.cacheReadTokens
   const cachedTokens =
     (usage?.inputTokenDetails?.cacheReadTokens ?? 0) +
     (usage?.inputTokenDetails?.cacheCreationTokens ?? 0)
@@ -145,54 +219,53 @@ function buildResponse<T>(
   const response: AIResponse<T> = {
     data,
     usage: usage
-      ? {
-          inputTokens:  usage.inputTokens ?? 0,
-          outputTokens: usage.outputTokens ?? 0,
-          cachedTokens,
-        }
+      ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0, cachedTokens }
       : undefined,
     provider: config.provider,
     model: config.model,
     fromCache: false,
   }
 
-  logUsage(config, response)
+  logUsageBox(config, response)
   return response
 }
 
-function logUsage<T>(config: ProviderConfig, response: AIResponse<T>): void {
+/** Extracts a normalised usage object from a generateText result for events. */
+function extractUsage(result: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number } | undefined {
+  const u = (result as { usage?: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number; cacheCreationTokens?: number } } })?.usage
+  if (!u) return undefined
+  return {
+    inputTokens:  u.inputTokens ?? 0,
+    outputTokens: u.outputTokens ?? 0,
+    cachedTokens: (u.inputTokenDetails?.cacheReadTokens ?? 0) + (u.inputTokenDetails?.cacheCreationTokens ?? 0),
+  }
+}
+
+function logUsageBox<T>(config: ProviderConfig, response: AIResponse<T>): void {
   const isDev    = config.env === 'development'
   const forceLog = process.env.AI_LOG_USAGE === 'true'
   if (!isDev && !forceLog) return
 
   const u     = response.usage
   const width = 41
-
   const line = (label: string, value: string) => {
     const content = `  ${label.padEnd(10)} ${value}`
     const pad     = width - content.length - 1
     return `\x1b[2m[ai-provider]\x1b[0m │${content}${' '.repeat(Math.max(0, pad))}│`
   }
-
   const bar = (char: string) =>
     `\x1b[2m[ai-provider]\x1b[0m ${char}${'─'.repeat(width)}${char === '┌' ? '┐' : '┘'}`
 
   const lines: string[] = [bar('┌')]
   lines.push(line('provider', `\x1b[36m${config.provider}\x1b[0m \x1b[2m(${config.env})\x1b[0m`))
   lines.push(line('model',    `\x1b[36m${config.model}\x1b[0m`))
-
-  if (response.fromCache) {
-    lines.push(line('tokens', '\x1b[2mskipped — response cache hit\x1b[0m'))
-  } else if (u) {
+  if (u) {
     lines.push(line('tokens', `in: \x1b[33m${u.inputTokens}\x1b[0m  out: \x1b[33m${u.outputTokens}\x1b[0m`))
     if (u.cachedTokens > 0) {
       const pct = Math.round((u.cachedTokens / u.inputTokens) * 100)
       lines.push(line('cached', `\x1b[32m${u.cachedTokens} tokens (${pct}% of input)\x1b[0m`))
     }
-  } else {
-    lines.push(line('tokens', '\x1b[2munavailable\x1b[0m'))
   }
-
   lines.push(bar('└'))
   lines.forEach(l => console.log(l))
 }
@@ -211,7 +284,6 @@ function guardTokenBudget(text: string, maxTokens: number): void {
 
 async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>
-
   const timeoutPromise = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(new AIProviderError(
@@ -222,7 +294,6 @@ async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<
       ))
     }, timeoutMs)
   })
-
   try {
     const result = await Promise.race([fn(), timeoutPromise])
     clearTimeout(timer!)
@@ -231,32 +302,4 @@ async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<
     clearTimeout(timer!)
     throw err
   }
-}
-
-async function withRetry<T>(fn: () => Promise<T>, provider: string, maxRetries = 2): Promise<T> {
-  let lastError: AIProviderError | undefined
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn()
-    } catch (err) {
-      const wrapped = err instanceof AIProviderError ? err : wrapError(err, provider)
-
-      if (!isRetryable(wrapped.code)) {
-        throw wrapped
-      }
-
-      lastError = wrapped
-
-      if (attempt < maxRetries) {
-        const backoff = 500 * Math.pow(2, attempt)
-        if (process.env.AI_LOG_USAGE === 'true') {
-          console.warn(`[ai-provider] Retrying (attempt ${attempt + 1}/${maxRetries}) after ${backoff}ms — ${wrapped.code}`)
-        }
-        await new Promise<void>(r => setTimeout(r, backoff))
-      }
-    }
-  }
-
-  throw lastError
 }
