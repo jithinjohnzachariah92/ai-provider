@@ -41,16 +41,20 @@ export async function generateStructured<T>(
 
   guardTokenBudget(options.systemPrompt + options.prompt, options.maxInputTokens ?? 8000)
 
-  const model    = await buildModel(config)
   const { system, messages } = buildMessages(config, options.systemPrompt, options.prompt)
   const timeout  = TIMEOUT_MS[config.provider]
 
   const result = await execute(
-    () => generateText({
-      model, system, messages,
-      output: Output.object({ schema: options.schema }),
-      maxOutputTokens: config.maxTokens,
-    }),
+    async () => {
+      // buildModel runs inside execute so connectivity/auth errors are
+      // captured by the instrumented error handling and emit failure events
+      const model = await buildModel(config)
+      return generateText({
+        model, system, messages,
+        output: Output.object({ schema: options.schema }),
+        maxOutputTokens: config.maxTokens,
+      })
+    },
     config, timeout, options.correlationId
   )
 
@@ -77,12 +81,14 @@ export async function generatePlainText(
 
   guardTokenBudget(options.systemPrompt + options.prompt, options.maxInputTokens ?? 8000)
 
-  const model    = await buildModel(config)
   const { system, messages } = buildMessages(config, options.systemPrompt, options.prompt)
   const timeout  = TIMEOUT_MS[config.provider]
 
   const result = await execute(
-    () => generateText({ model, system, messages, maxOutputTokens: config.maxTokens }),
+    async () => {
+      const model = await buildModel(config)
+      return generateText({ model, system, messages, maxOutputTokens: config.maxTokens })
+    },
     config, timeout, options.correlationId
   )
 
