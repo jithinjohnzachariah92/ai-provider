@@ -93,11 +93,9 @@ Your code is identical in every environment. The provider switches automatically
 
 ## Switching cloud providers
 
-Switching from Anthropic to OpenAI (or any other provider) is one env var and one package:
+Provider selection is controlled by the `AI_PROVIDER` env var. **The API key alone does not switch the provider** — you must set `AI_PROVIDER` explicitly. This is deliberate: it prevents ambiguity when multiple keys are present and keeps you in explicit control of which provider (and price tier) you hit.
 
-```bash
-npm install @ai-sdk/openai
-```
+Default in production is Anthropic. To use a different provider, set two env vars:
 
 ```bash
 # .env.production
@@ -105,18 +103,31 @@ AI_PROVIDER=openai
 OPENAI_API_KEY=sk-...
 ```
 
+```bash
+# Or Groq (free tier, very fast)
+AI_PROVIDER=groq
+GROQ_API_KEY=gsk_...
+```
+
 No code changes. Your `generateStructured()` calls are unchanged.
+
+Anthropic and OpenAI work out of the box (bundled as dependencies). For Google, Groq, or Mistral, install the adapter:
+
+```bash
+npm install @ai-sdk/groq   # or @ai-sdk/google, @ai-sdk/mistral
+```
 
 ### Supported providers
 
-| Provider | Package | Env var |
-|---|---|---|
-| Anthropic (default) | `@ai-sdk/anthropic` | `ANTHROPIC_API_KEY` |
-| OpenAI | `@ai-sdk/openai` | `OPENAI_API_KEY` |
-| Google Gemini | `@ai-sdk/google` | `GOOGLE_GENERATIVE_AI_API_KEY` |
-| Groq | `@ai-sdk/groq` | `GROQ_API_KEY` |
-| Mistral | `@ai-sdk/mistral` | `MISTRAL_API_KEY` |
-| Ollama (local) | `ollama-ai-provider` | — |
+| Provider | `AI_PROVIDER` value | Env var | Adapter |
+|---|---|---|---|
+| Anthropic (default) | `anthropic` | `ANTHROPIC_API_KEY` | bundled |
+| OpenAI | `openai` | `OPENAI_API_KEY` | bundled |
+| Ollama (local) | `ollama` | — | bundled (via OpenAI-compatible endpoint) |
+| Google Gemini | `google` | `GOOGLE_GENERATIVE_AI_API_KEY` | `npm install @ai-sdk/google` |
+| Groq | `groq` | `GROQ_API_KEY` | `npm install @ai-sdk/groq` |
+| Mistral | `mistral` | `MISTRAL_API_KEY` | `npm install @ai-sdk/mistral` |
+
 
 ---
 
@@ -161,8 +172,8 @@ console.log(result.data)  // the text response
 
 | Variable | Default | Description |
 |---|---|---|
-| `NODE_ENV` | `development` | Drives provider selection |
-| `AI_PROVIDER` | — | Force a provider: `ollama`, `anthropic`, `openai`, `google`, `groq`, `mistral` |
+| `NODE_ENV` | `development` | Selects default provider: `development`→Ollama, `test`→Haiku, `production`→Sonnet |
+| `AI_PROVIDER` | — | Overrides the default. Required to use any non-default provider — a key alone won't switch |
 | `AI_MODEL` | — | Force a specific model string |
 | `AI_LOG_USAGE` | `false` | Log provider, model, and token usage to console |
 | `AI_TIMEOUT_MS` | `60000` (Ollama) / `30000` (cloud) | Request timeout in ms |
