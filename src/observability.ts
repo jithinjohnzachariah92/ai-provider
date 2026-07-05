@@ -1,5 +1,7 @@
 /// <reference types="node" />
 
+import { CacheStats } from "./cache.js"
+
 /**
  * Observability layer.
  *
@@ -34,13 +36,14 @@ export type AIEvent = {
   env: string
   durationMs?: number
   /** present on success */
-  usage?: { inputTokens: number; outputTokens: number; cachedTokens: number }
+  usage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }
   /** present on failure */
   error?: { code: string; message: string }
   /** present on retry */
   attempt?: number
   /** caller-supplied correlation id for tracing across services */
   correlationId?: string
+  cacheStats?: CacheStats
 }
 
 type AIEventHandler = (event: AIEvent) => void

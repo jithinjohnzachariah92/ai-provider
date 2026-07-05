@@ -176,6 +176,125 @@ try {
   log(false, 'missing API key guard', String(err))
 }
 
+// ── Cache observability — counters ────────────────────────────────────────────
+console.log('\nCache observability — counters')
+try {
+  responseCache.clear()
+
+  const miss = responseCache.get('obs:absent')
+  log(miss === null, 'get on absent key returns null (miss)')
+
+  responseCache.set('obs:k1', { v: 1 })
+  const hit = responseCache.get('obs:k1')
+  log(hit !== null, 'get after set returns value (hit)')
+
+  const stats = responseCache.getStats()
+  log(stats.hits === 1,    `stats.hits is 1 (got ${stats.hits})`)
+  log(stats.misses === 1,  `stats.misses is 1 (got ${stats.misses})`)
+  log(stats.hitRate === 0.5, `hitRate is 0.5 (got ${stats.hitRate})`)
+  log(stats.size === 1,    `size reflects one entry (got ${stats.size})`)
+} catch (err) {
+  log(false, 'cache counters', String(err))
+}
+
+// ── Cache observability — eviction fires and counts ───────────────────────────
+console.log('\nCache observability — eviction')
+try {
+  const { BoundedCache } = await import('../src/cache.js')
+  const c = new BoundedCache(2, 60_000) // maxSize 2
+
+  c.set('a', 1)
+  c.set('b', 2)
+  c.set('c', 3) // evicts LRU
+
+  log(c.getStats().size === 2,      `size bounded to maxSize (got ${c.getStats().size})`)
+  log(c.getStats().evictions === 1, `one eviction counted (got ${c.getStats().evictions})`)
+  log(c.get('a') === null,          'oldest/untouched key was evicted')
+  log(c.get('b') !== null && c.get('c') !== null, 'newer keys survived')
+} catch (err) {
+  log(false, 'cache eviction', String(err))
+}
+
+// ── Cache observability — LRU keeps hot entries ───────────────────────────────
+console.log('\nCache observability — LRU recency')
+try {
+  const { BoundedCache } = await import('../src/cache.js')
+  const c = new BoundedCache(2, 60_000)
+
+  c.set('a', 1)
+  c.set('b', 2)
+  c.get('a')    // touch 'a' → most-recently-used
+  c.set('c', 3) // should evict 'b', not 'a'
+
+  log(c.get('b') === null, 'LRU evicted the untouched entry (b)')
+  log(c.get('a') !== null, 'LRU kept the recently-touched entry (a)')
+} catch (err) {
+  log(false, 'cache LRU recency', String(err))
+}
+
+// ── Cache observability — app-cache hit short-circuits the model ──────────────
+console.log('\nCache observability — app-cache short-circuit')
+try {
+  const { onAIEvent } = await import('../src/index.js')
+  responseCache.clear()
+
+  const captured: any[] = []
+  onAIEvent((event) => captured.push(event))
+
+  const opts = {
+    systemPrompt: 'Extract structured data. Respond only with valid JSON matching the schema.',
+    prompt: 'My name is Alex and I live in London.',
+    schema: z.object({ name: z.string(), city: z.string() }),
+    cacheKey: 'obs:short-circuit',
+  }
+
+  const first  = await generateStructured(opts)
+  const second = await generateStructured(opts)
+
+  log(first.fromCache === false, 'first call not from cache')
+  log(second.fromCache === true, 'second call served from app cache')
+
+  const successes = captured.filter(e => e.type === 'request.success').length
+  log(successes === 1, `model called exactly once — second short-circuited (got ${successes})`)
+  log(captured.some(e => e.type === 'cache.hit'), 'cache.hit event fired on second call')
+
+  onAIEvent(() => {}) // reset handler, matching existing convention
+} catch (err) {
+  log(false, 'app-cache short-circuit', String(err))
+}
+
+// ── Cache observability — Anthropic prompt-cache read vs write (guarded) ──────
+console.log('\nCache observability — Anthropic prompt-cache (guarded)')
+try {
+  if (process.env.ANTHROPIC_API_KEY && process.env.AI_ENV === 'production') {
+    const { onAIEvent } = await import('../src/index.js')
+    const captured: any[] = []
+    onAIEvent((event) => captured.push(event))
+
+    const base = {
+      systemPrompt: 'You are a precise structured-data extractor. '.repeat(40),
+      schema: z.object({ name: z.string(), city: z.string() }),
+    }
+    // Different cacheKeys so the APP cache doesn't short-circuit — we want to
+    // reach Anthropic twice and observe its prompt-cache write then read.
+    await generateStructured({ ...base, prompt: 'Alex from London',  cacheKey: 'anthropic:1', correlationId: 'a1' })
+    await generateStructured({ ...base, prompt: 'Sam from Bristol', cacheKey: 'anthropic:2', correlationId: 'a2' })
+
+    const successes = captured.filter(e => e.type === 'request.success')
+    const wrote = successes.some(e => (e.usage?.cacheCreationTokens ?? 0) > 0)
+    const read  = successes.some(e => (e.usage?.cacheReadTokens ?? 0) > 0)
+
+    log(wrote, 'first call wrote the Anthropic prompt cache')
+    log(read,  'second call read the Anthropic prompt cache')
+
+    onAIEvent(() => {})
+  } else {
+    log(true, 'skipped locally — run in CI with ANTHROPIC_API_KEY + AI_ENV=production')
+  }
+} catch (err) {
+  log(false, 'Anthropic prompt-cache', String(err))
+}
+
 // ── Summary ───────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(40)}`)
 console.log(`  ${passed} passed  ${failed > 0 ? `${failed} failed` : ''}`)

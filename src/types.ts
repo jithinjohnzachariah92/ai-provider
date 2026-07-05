@@ -31,10 +31,8 @@ export type AIResponse<T> = {
   usage?: {
     inputTokens: number
     outputTokens: number
-    /** Provider-side cache token count. Only populated if the provider returns
-     *  cache metadata in the response (currently Anthropic via the Vercel AI SDK).
-     *  Defaults to 0 for providers that do not yet expose this. */
-    cachedTokens: number
+    cacheReadTokens: number
+    cacheCreationTokens: number
   }
   provider: AIProviderName
   model: string

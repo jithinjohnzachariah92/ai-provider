@@ -4,7 +4,7 @@ import type { ModelMessage } from 'ai'
 import type { ZodSchema } from 'zod'
 import { resolveProvider } from './provider.js'
 import { buildModel } from './client.js'
-import { responseCache } from './cache.js'
+import { CacheStats, responseCache } from './cache.js'
 import { wrapError, isRetryable, AIProviderError } from './errors.js'
 import { emitEvent } from './observability.js'
 import type { AIRequestOptions, AIResponse, ProviderConfig } from './types.js'
@@ -35,7 +35,9 @@ export async function generateStructured<T>(
       model: config.model,
       env: config.env,
       correlationId: options.correlationId,
+      cacheStats: responseCache.getStats(), 
     })
+    logCacheHitBox(config, responseCache.getStats())   // terminal visibility
     return { data: cached, provider: config.provider, model: config.model, fromCache: true }
   }
 
@@ -218,14 +220,18 @@ function buildResponse<T>(
 ): AIResponse<T> {
   if (cacheKey) responseCache.set(cacheKey, data)
 
-  const cachedTokens =
-    (usage?.inputTokenDetails?.cacheReadTokens ?? 0) +
-    (usage?.inputTokenDetails?.cacheCreationTokens ?? 0)
+  const cacheReadTokens     = usage?.inputTokenDetails?.cacheReadTokens ?? 0
+  const cacheCreationTokens = usage?.inputTokenDetails?.cacheCreationTokens ?? 0
 
   const response: AIResponse<T> = {
     data,
     usage: usage
-      ? { inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0, cachedTokens }
+      ? {
+          inputTokens:  usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+          cacheReadTokens,
+          cacheCreationTokens,
+        }
       : undefined,
     provider: config.provider,
     model: config.model,
@@ -237,13 +243,14 @@ function buildResponse<T>(
 }
 
 /** Extracts a normalised usage object from a generateText result for events. */
-function extractUsage(result: unknown): { inputTokens: number; outputTokens: number; cachedTokens: number } | undefined {
+function extractUsage(result: unknown): { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number } | undefined {
   const u = (result as { usage?: { inputTokens?: number; outputTokens?: number; inputTokenDetails?: { cacheReadTokens?: number; cacheCreationTokens?: number } } })?.usage
   if (!u) return undefined
   return {
     inputTokens:  u.inputTokens ?? 0,
     outputTokens: u.outputTokens ?? 0,
-    cachedTokens: (u.inputTokenDetails?.cacheReadTokens ?? 0) + (u.inputTokenDetails?.cacheCreationTokens ?? 0),
+    cacheReadTokens:     u.inputTokenDetails?.cacheReadTokens ?? 0,
+    cacheCreationTokens: u.inputTokenDetails?.cacheCreationTokens ?? 0,
   }
 }
 
@@ -267,9 +274,12 @@ function logUsageBox<T>(config: ProviderConfig, response: AIResponse<T>): void {
   lines.push(line('model',    `\x1b[36m${config.model}\x1b[0m`))
   if (u) {
     lines.push(line('tokens', `in: \x1b[33m${u.inputTokens}\x1b[0m  out: \x1b[33m${u.outputTokens}\x1b[0m`))
-    if (u.cachedTokens > 0) {
-      const pct = Math.round((u.cachedTokens / u.inputTokens) * 100)
-      lines.push(line('cached', `\x1b[32m${u.cachedTokens} tokens (${pct}% of input)\x1b[0m`))
+    if (u.cacheReadTokens > 0) {
+      const pct = Math.round((u.cacheReadTokens / u.inputTokens) * 100)
+      lines.push(line('cache read', `\x1b[32m${u.cacheReadTokens} tokens (${pct}% of input)\x1b[0m`))
+    }
+    if (u.cacheCreationTokens > 0) {
+      lines.push(line('cache write', `\x1b[35m${u.cacheCreationTokens} tokens\x1b[0m`))
     }
   }
   lines.push(bar('└'))
@@ -308,4 +318,11 @@ async function withTimeout<T>(fn: () => Promise<T>, timeoutMs: number): Promise<
     clearTimeout(timer!)
     throw err
   }
+}
+
+function logCacheHitBox(config: ProviderConfig, stats: CacheStats): void {
+  const isDev = config.env === 'development'
+  const forceLog = process.env.AI_LOG_USAGE === 'true'
+  if (!isDev && !forceLog) return
+  console.log(`\x1b[2m[ai-provider]\x1b[0m \x1b[32mapp-cache hit\x1b[0m — hitRate ${stats.hitRate}, size ${stats.size}`)
 }
