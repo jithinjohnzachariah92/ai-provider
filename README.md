@@ -1,5 +1,9 @@
 # @jz92/ai-provider
 
+> ⚠️ This repository has been archived. 
+> `@jz92/ai-provider` is now maintained as part of the 
+> [@jz92/ai-platform](https://github.com/jithinjohnzachariah92/ai-platform) monorepo.
+
 A zero-config AI routing layer for Node.js and Next.js projects.
 
 Import one function — get Ollama locally and any cloud provider in production, automatically, based on `NODE_ENV`. No provider-switching logic in your feature code, ever.
